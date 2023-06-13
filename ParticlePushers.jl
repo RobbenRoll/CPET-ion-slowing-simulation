@@ -5,15 +5,12 @@ using DataFrames
 using Interpolations
 using Statistics
 using Random
+using StaticArrays
 import Distributions: Normal
 import PhysicalConstants.CODATA2018: c_0, ε_0, m_e, e, m_u, k_B, h, μ_B
 import SpecialFunctions: erf
 
 ##### Relativistic Boris pusher with without friction or diffusion
-function epsilon_dt(E; q=e.val, m=m_u.val)
-    return 0.5*q/m*E*dt  
-end 
-
 function gamma_from_u(u)
     return sqrt(1 + sum((u./c_0.val).^2))
 end
@@ -23,7 +20,7 @@ function Boris_push(r, u_last_half, E, B, dt; q=e.val, m=m_u.val)
     
     For a Python implementation see https://stanczakdominik.github.io/posts/on-the-recent-on-the-boris-solver-in-particle-in-cell-simulations-paper/
     """
-    eps_dt = epsilon_dt(E; q=q, m=m) 
+    eps_dt = 0.5*q/m*E*dt 
     u_m = u_last_half +  eps_dt # Eqn. 3
     
     norm_B = norm(B)
@@ -104,31 +101,33 @@ path = "./../CPET Trap Potentials/Warp/"
 fname = "2022-08-18_1528_RZ_potential_at_5.001e-06srect_well_40V_4p2e05particles_weight100_1e-09s_steps_1us_injection_5us_300K_r_p_1mm.txt" 
 df = load_PIC_potentials(fname; path=path)
 sitp = define_potential_interpolation(df)
+∇V(r::Float64,z::Float64)::SVector{2,Float64} = gradient(sitp, z, r)
+update_gradV!(gradV::Vector{Float64}, r::Float64, z::Float64)::SVector{2,Float64} = Interpolations.gradient!(gradV, sitp, z, r)
 
-function V_itp(pos)
+function V_itp(pos::Vector{Float64})::Float64 
     """Get interpolated potential at arbitrary position in simulation volume"""
     r = norm(pos[1:2]) 
     return sitp(pos[3], r)
 end
 
-function get_azimuthal_angle(pos)
+function get_azimuthal_angle(pos::SVector{3,Float64})
     """Get azimuthal angle of position vector in cylindrical coordinate system"""
     x, y, _ = pos
-    if x > 0 
-        phi = atan(y/x)
-    elseif x < 0 && y >= 0 
-        phi = atan(y/x) + pi 
-    elseif x < 0 && y < 0 
-        phi = atan(y/x) - pi
-    elseif x ==0 && y != 0 
-        phi = pi/2*sign(y)
+    if pos[1] > 0 
+        phi = atan(pos[2]/pos[1])
+    elseif pos[1] < 0 && pos[2] >= 0 
+        phi = atan(pos[2]/pos[1]) + pi 
+    elseif pos[1] < 0 && pos[2] < 0 
+        phi = atan(pos[2]/pos[1]) - pi
+    elseif pos[1]==0 && pos[2]!=0 
+        phi = pi/2*sign(pos[2])
     else 
         phi = NaN
     end
     return phi
 end
 
-function E_itp(pos)
+function E_itp(pos::SVector{3,Float64})
     """Get interpolated electric field vector [V/m]"""
     r = norm(pos[1:2])
     if r != 0.0 
@@ -136,18 +135,46 @@ function E_itp(pos)
     else 
         phi = 0.0
     end
-    dVdz, dVdr = gradient(sitp, pos[3], r)
+    dVdz::Float64, dVdr::Float64 = ∇V(r, pos[3]) #gradient(sitp, pos[3], r)
     return -1.0*[dVdr*cos(phi), dVdr*sin(phi), dVdz]
 end 
 
+function E_itp!(E, pos)
+    """Get interpolated electric field vector [V/m]"""
+    r = norm(pos[1:2])
+    if r != 0.0 
+        phi = get_azimuthal_angle(pos)
+    else 
+        phi = 0.0
+    end
+    gradV = update_gradV!(gradV, r, pos[3]) #dVdz::Float64, dVdr::Float64 = ∇V(r, pos[3])
+    E = -1.0*[gradV[2]*cos(phi), gradV[2]*sin(phi), gradV[1]]
+end 
 
-##### Boris particle pusher with 
+function radial_offset(pos::SVector{3, Float64})::Float64
+    return sqrt(pos[1]^2 + pos[2]^2)
+end 
+
+function update_E!(E, pos)
+    """Get interpolated electric field vector [V/m]"""
+    r = radial_offset(pos)
+    if r != 0.0 
+        phi = get_azimuthal_angle(pos)
+    else 
+        phi = 0.0
+    end
+    dVdz::Float64, dVdr::Float64 = ∇V(r, pos[3])
+    E .= -1.0.*[dVdr*cos(phi), dVdr*sin(phi), dVdz]
+end 
+
+
+##### Boris particle pusher with damping
 function Boris_push_with_damping(r, u_last_half, E, B, dt; q=e.val, m=m_u.val, γ=1e05, 
                                  n_b=1e07*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, velocity_diffusion=true) 
     """Boris particle pusher based on advanced implementation from Zentani2018
 
     """
-    eps_dt = epsilon_dt(E, q=q, m=m)
+    eps_dt = 0.5*q/m*E*dt
     u_m = u_last_half + eps_dt - u_last_half*γ*dt # Eqn. 3 plus friction
 
     norm_B = norm(B)
@@ -173,38 +200,129 @@ function Boris_push_with_damping(r, u_last_half, E, B, dt; q=e.val, m=m_u.val, �
     return r_next, u_next_half
 end
 
-##### Boris particle pusher with Euler-Maryurama velocity diffusion
-Id = Matrix{Int}(I, 3, 3) # define identity matrix
-function Boris_push_with_friction(r, u_last_half, E, B, dt; q=e.val, m=m_u.val, 
-                                  n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, velocity_diffusion=true) 
-    """Boris particle pusher based on advanced implementation from Zentani2018 
-    
-    Extended to include friction and optionally velocity diffusion
-    
-    """
-    eps_dt = epsilon_dt(E, q=q, m=m)
-    ## TODO: Check need for gamma factor in friction terms
-    u_m = u_last_half + eps_dt - u_last_half*get_ν_s(norm(u_last_half), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)*dt # Eqn. 3 plus friction
-    
-    norm_B = norm(B)
-    theta = q/m*dt/gamma_from_u(u_m)*norm_B # Eqn. 6
-    b = B/norm_B
-    
-    u_m_parallel = dot(u_m, b)*b # Eqn. 11
-    u_p = u_m_parallel + (u_m - u_m_parallel)*cos(theta) + cross(u_m, b)*sin(theta) # Eqn. 12
-    u_next_half = u_p + eps_dt - u_p*get_ν_s(norm(u_p), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)*dt # Eqn. 5 plus friction
-    if velocity_diffusion && n_b > 0.0
-        # Add Euler Maryuama step
-        D_par = get_D_par(norm(u_p), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
-        D_perp = get_D_perp(norm(u_p), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
-        uu_normed = u_m*transpose(u_m)/norm(u_m)^2
-        dW = rand(Normal(0, sqrt(dt)), 3)   
-        
-        u_next_half += ( sqrt(D_par)*uu_normed + sqrt(D_perp)*(Id - uu_normed) )*dW
+#### Define functions for friction and diffusion from ion-electron collisions 
+function G(x)
+    """Calculate Chandrasekhar function"""
+    return 0.5*(erf(x) - 2*x/sqrt(pi)*exp(-x^2))/x^2
+end
+
+function Coulomb_log(n_b; T_b=300., q=e.val)
+    """Coulomb logarithm for electron-ion scattering"""
+    return 23. - log(sqrt(n_b*1e-06)*(q/e.val)/(k_B.val*T_b/e.val)^1.5)
+end    
+
+function get_ν_0(v; n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val)
+    """Calculate characteristic frequency (as also defined in Kunz2021 Lecture notes)"""
+    v_b = sqrt(2*k_B.val*T_b/m_b)
+    if m_b == m_e.val
+        Coul_log = Coulomb_log(n_b, T_b=T_b, q=q)
+    else
+        throw("Ion-ion collision Coulomb logarithm not implemented yet.") # TODO: Add Coulomb log for ion-ion scattering
     end
-    r_next = r + u_next_half/gamma_from_u(u_next_half)*dt # Eqn. 1
+    return q^2*q_b^2*n_b*Coul_log/(4*pi*ε_0.val^2*m^2*v_b^3)
+end 
+
+function get_ν_s(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
+    """Calculate slowing down frequency for ions collinding on Maxwellian background species
     
-    return r_next, u_next_half
+    See Ichimaru1973 - Basic Principles of Plasma Physics - A Statistical Approach
+    """
+    v_b = sqrt(2*k_B.val*T_b/m_b)
+    return 2*(1 + m/m_b)*v_b/v*G(v/v_b) * get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
+end
+
+function get_D_par(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
+    """Calculate parallel diffusion coefficient for ions collinding on Maxwellian background species
+    
+    See Ichimaru1973 - Basic Principles of Plasma Physics - A Statistical Approach
+    """
+    v_b = sqrt(2*k_B.val*T_b/m_b)
+    return 2*v_b^3/v*G(v/v_b) * get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
+end
+
+function get_ν_par(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
+    """Calculate parallel diffusion frequency for ions collinding on Maxwellian background species
+    
+    See Kunz2021 Lecture Notes on Irreversible Processes in Plasmas
+    """
+    v_b = sqrt(2*k_B.val*T_b/m_b)
+    return 2*(v_b/v)^3*G(v/v_b) * get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
+end
+
+function get_D_perp(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
+    """Calculate transverse diffusion coefficient for ions collinding on Maxwellian background species
+    
+    See Ichimaru1973 - Basic Principles of Plasma Physics - A Statistical Approach
+    """
+    v_b = sqrt(2*k_B.val*T_b/m_b)
+    return v_b^3/v*(erf(v/v_b) - G(v/v_b)) * get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
+end
+
+function get_ν_perp(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
+    """Calculate transverse diffusion frequency for ions collinding on Maxwellian background species
+    
+    See Kunz2021 Lecture Notes on Irreversible Processes in Plasmas
+    """
+    v_b = sqrt(2*k_B.val*T_b/m_b)
+    return 2*(v_b/v)^3*(erf(v/v_b) - G(v/v_b)) * get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
+end
+
+function get_all_νs(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
+    """Calculate slowing down and diffusion frequencies for ions collinding on Maxwellian background species
+    
+    See Kunz2021 Lecture Notes on Irreversible Processes in Plasmas
+    """
+    ν0 = get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
+    v_b = sqrt(2*k_B.val*T_b/m_b)
+    ν_slowing = 2*(1 + m/m_b)*v_b/v*G(v/v_b) * ν0
+    ν_par_diffusion = 2*(v_b/v)^3*G(v/v_b) * ν0 
+    ν_perp_diffusion = 2*(v_b/v)^3*(erf(v/v_b) - G(v/v_b)) * ν0
+    return ν_slowing, ν_par_diffusion, ν_perp_diffusion
+end
+
+function get_ν_E(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
+    """Calculate energy loss frequency for ions collinding on Maxwellian background species
+    
+    See Kunz2021 Lecture Notes on Irreversible Processes in Plasmas
+    """
+    v_b = sqrt(2*k_B.val*T_b/m_b)
+    ν_slowing, ν_par_diffusion, ν_perp_diffusion = get_all_νs(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
+    return 2*ν_slowing - ν_par_diffusion - ν_perp_diffusion
+end
+
+##### Boris particle pusher with Euler-Maryurama velocity diffusion
+const I33 = Matrix{Int}(I, 3, 3) # define identity matrix
+function Boris_push_with_friction(r, u, E, B, dt, dW, norm_dist; q=e.val, m=m_u.val, 
+    n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, velocity_diffusion=true) 
+    """Boris particle pusher based on advanced implementation from Zentani2018 
+
+    Extended to include friction and optionally velocity diffusion
+
+    """
+    eps_dt = 0.5*q/m*E*dt #epsilon_dt(E, q=q, m=m)
+    ## TODO: Check need for gamma factor in friction terms
+    u_m = u + eps_dt - u*get_ν_s(norm(u), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)*dt # Eqn. 3 plus friction
+
+    norm_B = norm(B)
+    θ = q/m*dt/gamma_from_u(u_m)*norm_B # Eqn. 6
+    b = B/norm_B
+
+    u_m_parallel = dot(u_m, b)*b # Eqn. 11
+    u_p = u_m_parallel + (u_m - u_m_parallel)*cos(θ) + cross(u_m, b)*sin(θ) # Eqn. 12
+
+    u = u_p + eps_dt - u_p*get_ν_s(norm(u_p), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)*dt # Eqn. 5 plus friction
+    if velocity_diffusion && n_b > 0.0
+    # Add Euler Maryuama step
+    D_par = get_D_par(norm(u_p), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
+    D_perp = get_D_perp(norm(u_p), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
+    uu_normed = u_m*transpose(u_m)/norm(u_m)^2 
+    rand!(norm_dist, dW) 
+
+    u += ( sqrt(D_par)*uu_normed + sqrt(D_perp)*(I33 - uu_normed) )*dW
+    end
+    r += u/gamma_from_u(u)*dt # Eqn. 1
+
+    return r, u 
 end
 
 ##### Guiding centre particle pusher
