@@ -2,3 +2,6 @@
 *.rtf
 *.DS_store
 *.ipy*
+*.mem
+*.h5
+OutputFiles
