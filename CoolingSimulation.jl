@@ -5,103 +5,13 @@ using Plots
 #using Interpolations
 using Statistics
 using Random
+using StaticArrays
 import Distributions: Normal, truncated
 import PhysicalConstants.CODATA2018: c_0, ε_0, m_e, e, m_u, k_B, h, μ_B
 import SpecialFunctions: erf
 import StatsBase: sample, ProbabilityWeights
 include("ParticlePushers.jl")
 include("IonNeutralCollisions.jl")
-
-#### Define functions for friction and diffusion from ion-electron collisions 
-function G(x)
-    """Calculate Chandrasekhar function"""
-    return 0.5*(erf(x) - 2*x/sqrt(pi)*exp(-x^2))/x^2
-end
-
-function Coulomb_log(n_b; T_b=300., q=e.val)
-    """Coulomb logarithm for electron-ion scattering"""
-    return 23. - log(sqrt(n_b*1e-06)*(q/e.val)/(k_B.val*T_b/e.val)^1.5)
-end    
-
-function get_ν_0(v; n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val)
-    """Calculate characteristic frequency (as also defined in Kunz2021 Lecture notes)"""
-    v_b = sqrt(2*k_B.val*T_b/m_b)
-    if m_b == m_e.val
-        Coul_log = Coulomb_log(n_b, T_b=T_b, q=q)
-    else
-        throw("Ion-ion collision Coulomb logarithm not implemented yet.") # TODO: Add Coulomb log for ion-ion scattering
-    end
-    return q^2*q_b^2*n_b*Coul_log/(4*pi*ε_0.val^2*m^2*v_b^3)
-end 
-
-function get_ν_s(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
-    """Calculate slowing down frequency for ions collinding on Maxwellian background species
-    
-    See Ichimaru1973 - Basic Principles of Plasma Physics - A Statistical Approach
-    """
-    v_b = sqrt(2*k_B.val*T_b/m_b)
-    return 2*(1 + m/m_b)*v_b/v*G(v/v_b) * get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
-end
-
-function get_D_par(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
-    """Calculate parallel diffusion coefficient for ions collinding on Maxwellian background species
-    
-    See Ichimaru1973 - Basic Principles of Plasma Physics - A Statistical Approach
-    """
-    v_b = sqrt(2*k_B.val*T_b/m_b)
-    return 2*v_b^3/v*G(v/v_b) * get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
-end
-
-function get_ν_par(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
-    """Calculate parallel diffusion frequency for ions collinding on Maxwellian background species
-    
-    See Kunz2021 Lecture Notes on Irreversible Processes in Plasmas
-    """
-    v_b = sqrt(2*k_B.val*T_b/m_b)
-    return 2*(v_b/v)^3*G(v/v_b) * get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
-end
-
-function get_D_perp(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
-    """Calculate transverse diffusion coefficient for ions collinding on Maxwellian background species
-    
-    See Ichimaru1973 - Basic Principles of Plasma Physics - A Statistical Approach
-    """
-    v_b = sqrt(2*k_B.val*T_b/m_b)
-    return v_b^3/v*(erf(v/v_b) - G(v/v_b)) * get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
-end
-
-function get_ν_perp(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
-    """Calculate transverse diffusion frequency for ions collinding on Maxwellian background species
-    
-    See Kunz2021 Lecture Notes on Irreversible Processes in Plasmas
-    """
-    v_b = sqrt(2*k_B.val*T_b/m_b)
-    return 2*(v_b/v)^3*(erf(v/v_b) - G(v/v_b)) * get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
-end
-
-function get_all_νs(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
-    """Calculate slowing down and diffusion frequencies for ions collinding on Maxwellian background species
-    
-    See Kunz2021 Lecture Notes on Irreversible Processes in Plasmas
-    """
-    ν0 = get_ν_0(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
-    v_b = sqrt(2*k_B.val*T_b/m_b)
-    ν_slowing = 2*(1 + m/m_b)*v_b/v*G(v/v_b) * ν0
-    ν_par_diffusion = 2*(v_b/v)^3*G(v/v_b) * ν0 
-    ν_perp_diffusion = 2*(v_b/v)^3*(erf(v/v_b) - G(v/v_b)) * ν0
-    return ν_slowing, ν_par_diffusion, ν_perp_diffusion
-end
-
-function get_ν_E(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val) 
-    """Calculate energy loss frequency for ions collinding on Maxwellian background species
-    
-    See Kunz2021 Lecture Notes on Irreversible Processes in Plasmas
-    """
-    v_b = sqrt(2*k_B.val*T_b/m_b)
-    ν_slowing, ν_par_diffusion, ν_perp_diffusion = get_all_νs(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
-    return 2*ν_slowing - ν_par_diffusion - ν_perp_diffusion
-end
-
 struct RunResults
     start_Date::Float64 
     start_time::Float64
@@ -116,17 +26,35 @@ end
 function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B, 
                                        n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, 
                                        neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
-                                       CX_fractions=[], T_n=300., 
+                                       CX_fractions=[], T_n=300.,
                                        dt=1e-10, sample_every=1, velocity_diffusion=true)
-    sample_times = []
-    positions = []
-    velocities = []
+    t_end = times[end]
+    N_samples = Int64(round(t_end/(sample_every*dt))) + 1
+    sample_times = zeros(Float64, N_samples) #Vector{Float64}([])
+    positions = zeros(Float64, N_samples, 3) #Vector{Vector{Float64}}([])
+    velocities = zeros(Float64, N_samples, 3) #Vector{Vector{Float64}}([])
+    E = MVector{3,Float64}(undef) # SizedArray{Tuple{3}}([0.,0.,0.])
+    r = @SVector [r[1], r[2], r[3]]
+    u_last_half = @SVector [u_last_half[1], u_last_half[2], u_last_half[3]]
+    r_next = @SVector [0., 0., 0.]
+    u_next_half = @SVector [0., 0., 0.]
+    norm_dist = Normal(0, sqrt(dt))
+    dW = @MVector zeros(3)
+    model_MC_collisions = any(neutral_pressures_mbar .> 0)
+    MFPs = Vector{Float64}(similar(neutral_masses))
+    v_effs = Vector{Float64}(similar(neutral_masses))
+    coll_probs = Vector{Float64}(similar(neutral_masses))
+    coll_counts = zeros(length(neutral_masses))
+    #coll_type = @SVector
     #TODO: Add collision type counter
+    function inside_plasma()
+        return Bool(-0.03 < r[3] < 0.05 && n_b > 0.)
+    end 
     for t in times 
         # Get E-field and step
-        E = E_itp(r)
-        if -0.03 < r[3] < 0.05 && n_b > 0. # inside plasma # TODO: derive plasma bounds from Warp PIC data 
-            r_next, u_next_half = Boris_push_with_friction(r, u_last_half, E, B, dt, q=q, m=m, 
+        update_E!(E, r) # E = E_itp(r)
+        if inside_plasma() # TODO: derive plasma bounds from Warp PIC data 
+            r_next, u_next_half = Boris_push_with_friction(r, u_last_half, E, B, dt, q=q, m=m, dW, norm_dist,
                                                            n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, 
                                                            velocity_diffusion=velocity_diffusion)
         else
@@ -135,21 +63,23 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
 
         # Sample time-centred particle data
         if mod(t, sample_every*dt) < dt
-            push!(sample_times, t)
-            push!(positions, r)
-            push!(velocities, (u_last_half + u_next_half)/2) 
+            i = Int64(round(t/(sample_every*dt))) + 1
+            sample_times[i] = t #push!(sample_times, t)
+            positions[i,:] = r #push!(positions, r)
+            velocities[i,:] = (u_last_half + u_next_half)/2 #push!(velocities, (u_last_half + u_next_half)/2) 
         end
 
         # Model Monte Carlo ion-neutral collision 
-        if  any(neutral_pressures_mbar .> 0)
-            MFPs = [get_mean_free_path(u_next_half, q, m, m_n=neutral_masses[i], alpha=alphas[i], p_n_mbar=neutral_pressures_mbar[i],T_n=T_n) for i in range(1,length(neutral_masses))]
-            v_effs = [get_eff_collision_speed(u_next_half, m_n=m_n, T_n=T_n) for m_n in neutral_masses]
-            coll_probs = 1. .- exp.(-v_effs./MFPs.*dt)
+        if model_MC_collisions
+            update_MFPs!(MFPs, u_next_half, q, m, neutral_masses, alphas, neutral_pressures_mbar, T_n) #MFPs = [get_mean_free_path(u_next_half, q, m, m_n=neutral_masses[i], alpha=alphas[i], p_n_mbar=neutral_pressures_mbar[i],T_n=T_n) for i in range(1,length(neutral_masses))]
+            update_v_effs!(v_effs, u_next_half, neutral_masses, T_n) #v_effs = [get_eff_collision_speed(u_next_half, m_n=m_n, T_n=T_n) for m_n in neutral_masses]
+            update_coll_probs!(coll_probs, MFPs, v_effs, dt) ##coll_probs = 1. .- exp.(-v_effs./MFPs.*dt)
             if rand(Float64) <= sum(coll_probs) 
-                i_coll = sample(1:length(neutral_masses), ProbabilityWeights(coll_probs/sum(coll_probs))) # randomly  select neutral collision partner
+                i_coll = sample(1:length(neutral_masses), ProbabilityWeights(coll_probs/sum(coll_probs))) # randomly select neutral collision partner
                 u_next_half, coll_type = ion_neutral_collision(u_next_half, q, m, m_n=neutral_masses[i_coll], 
                                                                CX_frac=CX_fractions[i_coll],
                                                                alpha=alphas[i_coll], T_n=T_n)
+                coll_counts[i_coll] += 1
             end
         end
 
@@ -185,10 +115,10 @@ function integrate_orbit_with_adaptive_GCA_pusher(t_end, r, u_last_half; q=q, m=
     local R, μ, v_par_last_half, gyrophase, v_perp_norm, s 
     R = [NaN, NaN, NaN]
 
-    sample_times = [] 
-    positions = []
-    velocities = []
-    push_types = []
+    sample_times = Vector{Float64}([])
+    positions = Vector{Vector{Float64}}([])
+    velocities = Vector{Vector{Float64}}([])
+    push_types = Vector{String}([])
     function inside_plasma(r, n_b)
         if -0.03 < r[3] < 0.05 && n_b > 0. 
             return true
@@ -291,12 +221,16 @@ struct IonOrbit
     T_b::Vector{Float64}
 end
 
+#using Base.Threads
+using Distributed
+using SharedArrays
+using HDF5
 function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; 
                               μ_z0=-0.125, σ_z0=0.005, σ_xy0=0.001, q=e.val, m=23*m_u.val, N_ions=100, B=B, 
                               n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, 
                               neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
                               CX_fractions=[], T_n=300.,
-                              t_end=3.7, dt=1e-08, sample_every=100, velocity_diffusion=true)
+                              t_end=3.7, dt=1e-08, sample_every=100, velocity_diffusion=true, fname=nothing)
 
     ### Randomly initialize ion energies and radial positions
     # TODO add seed and truncate E0_par normal distribution
@@ -317,108 +251,147 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp;
 
     ### Loop over ions
     times = range(0.0, step=dt, stop=t_end)
-    for pid in range(1, N_ions)
+    ion_orbits = []
+    N_samples = Int64(round(t_end/(sample_every*dt))) + 1
+    all_sample_times = SharedArray{Float64}(N_ions,N_samples)
+    all_positions = SharedArray{Float64}(N_ions,N_samples,3) #SharedArray{Float64}(N_ions,N_samples,3)
+    all_velocities = SharedArray{Float64}(N_ions,N_samples,3) #SharedArray{Float64}(N_ions,N_samples,3)
+    @sync @distributed for pid in range(1, N_ions)
         u_last_half = [vx0[pid], vy0[pid], v0_par[pid]]
         sample_times, positions, velocities = integrate_orbit_with_friction(times, pos0[pid], u_last_half; q=q, m=m, B=B, 
                                                                             n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, 
                                                                             neutral_masses=neutral_masses, 
                                                                             neutral_pressures_mbar=neutral_pressures_mbar, 
-                                                                            alphas=alphas, 
-                                                                            CX_fractions=CX_fractions, T_n=T_n, 
+                                                                            alphas=alphas, CX_fractions=CX_fractions, T_n=T_n, 
                                                                             dt=dt, sample_every=sample_every, 
                                                                             velocity_diffusion=velocity_diffusion)
-        push!(ion_orbits, IonOrbit(sample_times, positions, velocities, [T_b]))
+        #push!(ion_orbits, IonOrbit(sample_times, positions, velocities, [T_b]))
+        all_sample_times[pid,:] = sample_times 
+        all_positions[pid,:,:] = positions 
+        all_velocities[pid,:,:] = velocities
     end 
+    println("Particle tracing completed.")
+
+    # Write run results to HDF5 file 
+    #fname = "@__DIR__/OutputFiles/test_run_plasma_on"
+    if !isnothing(fname)
+        fid = h5open(fname * ".h5", "w")
+        create_group(fid, "IonOrbits")
+        orbs = fid["IonOrbits"]
+        orbs["sample_time_hists"] = all_sample_times
+        orbs["position_hists"] = all_positions 
+        orbs["velocity_hists"] = all_velocities
+        close(fid)
+        println("Data written to " * fname * ".h5")
+    end
 
     ### Plot results 
     # Total energy evolutions
-    f1 = plot(xlabel="Time (s)", ylabel="Total ion energy (eV/q)",  legend=false)
-    total_energies = []
-    for orbit in ion_orbits
-        E_tot = 0.5*m*norm.(orbit.velocities).^2/q + V_itp.(orbit.positions)
-        plot!(orbit.sample_times, E_tot)
-        push!(total_energies, E_tot)
-    end 
-    mean_energies = [mean(getindex.(total_energies, i)) for i in range(1,length(ion_orbits[1].sample_times))]
-    err_mean_energies = [std(getindex.(total_energies, i))/sqrt(N_ions) for i in range(1,length(ion_orbits[1].sample_times))] 
-    plot!(ion_orbits[1].sample_times, mean_energies, linewidth=3, linecolor="black")
-    display(f1)
+    # f1 = plot(xlabel="Time (s)", ylabel="Total ion energy (eV/q)",  legend=false)
+    # total_energies = []
+    # for orbit in ion_orbits
+    #     E_tot = 0.5*m*norm.(orbit.velocities).^2/q + V_itp.(orbit.positions)
+    #     plot!(orbit.sample_times, E_tot)
+    #     push!(total_energies, E_tot)
+    # end 
+    # mean_energies = [mean(getindex.(total_energies, i)) for i in range(1,length(ion_orbits[1].sample_times))]
+    # err_mean_energies = [std(getindex.(total_energies, i))/sqrt(N_ions) for i in range(1,length(ion_orbits[1].sample_times))] 
+    # plot!(ion_orbits[1].sample_times, mean_energies, linewidth=3, linecolor="black")
+    # display(f1)
 
-    # Mean energy evolution
-    f2 = plot(xlabel="Time (s)", ylabel="Mean ion energy (eV/q)", legend=false)
-    plot!(ion_orbits[1].sample_times, mean_energies, 
-          ribbon=err_mean_energies, linewidth=3, linecolor="black")
-    display(f2)
+    # # Mean energy evolution
+    # f2 = plot(xlabel="Time (s)", ylabel="Mean ion energy (eV/q)", legend=false)
+    # plot!(ion_orbits[1].sample_times, mean_energies, 
+    #       ribbon=err_mean_energies, linewidth=3, linecolor="black")
+    # display(f2)
 
-    # Total longitudinal energy evolutions 
-    f3 = plot(xlabel="Time (s)", ylabel="Longitudinal ion energy (eV/q)",  legend=false)
-    par_energies = []
-    for orbit in ion_orbits
-        E_par = 0.5*m*getindex.(orbit.velocities,3).^2/q + V_itp.(orbit.positions)
-        plot!(orbit.sample_times, E_par)
-        push!(par_energies, E_par)
-    end 
-    mean_par_energies = [mean(getindex.(par_energies, i)) for i in range(1,length(ion_orbits[1].sample_times))]
-    err_mean_par_energies = [std(getindex.(par_energies, i))/sqrt(N_ions) for i in range(1,length(ion_orbits[1].sample_times))] 
-    plot!(ion_orbits[1].sample_times, mean_par_energies, linewidth=3, linecolor="black")
-    display(f3)
+    # # Total longitudinal energy evolutions 
+    # f3 = plot(xlabel="Time (s)", ylabel="Longitudinal ion energy (eV/q)",  legend=false)
+    # par_energies = []
+    # for orbit in ion_orbits
+    #     E_par = 0.5*m*getindex.(orbit.velocities,3).^2/q + V_itp.(orbit.positions)
+    #     plot!(orbit.sample_times, E_par)
+    #     push!(par_energies, E_par)
+    # end 
+    # mean_par_energies = [mean(getindex.(par_energies, i)) for i in range(1,length(ion_orbits[1].sample_times))]
+    # err_mean_par_energies = [std(getindex.(par_energies, i))/sqrt(N_ions) for i in range(1,length(ion_orbits[1].sample_times))] 
+    # plot!(ion_orbits[1].sample_times, mean_par_energies, linewidth=3, linecolor="black")
+    # display(f3)
     
-    # Mean longitudinal energy evolution
-    f4 = plot(xlabel="Time (s)", ylabel="Mean ion energy (eV/q)", legend=false)
-    plot!(ion_orbits[1].sample_times, mean_par_energies, 
-          ribbon=err_mean_par_energies, linewidth=3, linecolor="black")
-    display(f4)
+    # # Mean longitudinal energy evolution
+    # f4 = plot(xlabel="Time (s)", ylabel="Mean longitudinal ion energy (eV/q)", legend=false)
+    # plot!(ion_orbits[1].sample_times, mean_par_energies, 
+    #       ribbon=err_mean_par_energies, linewidth=3, linecolor="black")
+    # display(f4)
 
-    # 3D scatter of final ion positions
-    it = length(ion_orbits[1].sample_times)
-    X = [orbit.positions[it][1] for orbit in ion_orbits]
-    Y = [orbit.positions[it][2] for orbit in ion_orbits]
-    Z = [orbit.positions[it][3] for orbit in ion_orbits]
+    # # 3D scatter of final ion positions
+    # it = length(ion_orbits[1].sample_times)
+    # X = [orbit.positions[it][1] for orbit in ion_orbits]
+    # Y = [orbit.positions[it][2] for orbit in ion_orbits]
+    # Z = [orbit.positions[it][3] for orbit in ion_orbits]
 
-    f = scatter(Z, X, Y, xlabel="z (m)", ylabel="x (m)", zlabel="y (m)", 
-                legend=false, title="Final ion distribution")
-    display(f)
+    # f = scatter(Z, X, Y, xlabel="z (m)", ylabel="x (m)", zlabel="y (m)", 
+    #             legend=false, title="Final ion distribution")
+    # display(f)
 
-    # ZR scatter of final ion positions
-    f = scatter(Z, sqrt.(X.^2 + Y.^2), xlabel="z (m)", ylabel="r (m)", xlim=(-0.15,0.15), 
-                legend=false, title="Final ion distribution")
-    display(f)
+    # # ZR scatter of final ion positions
+    # f = scatter(Z, sqrt.(X.^2 + Y.^2), xlabel="z (m)", ylabel="r (m)", xlim=(-0.15,0.15), 
+    #             legend=false, title="Final ion distribution")
+    # display(f)
 
-    # Collect axial and radial displacement metrics
-    radial_offsets = []
-    axial_offsets = []
-    for orbit in ion_orbits
-        R = sqrt.(getindex.(orbit.positions, 1).^2 .+ getindex.(orbit.positions, 2).^2)
-        Z = getindex.(orbit.positions, 3)
-        push!(radial_offsets, R)
-        push!(axial_offsets, Z)
-    end
-    mean_radial_offsets = [mean(getindex.(radial_offsets, i)) for i in range(1,length(ion_orbits[1].sample_times))]
-    err_mean_radial_offsets = [std(getindex.(radial_offsets, i))/sqrt(N_ions) for i in range(1,length(ion_orbits[1].sample_times))]
-    RMS_radial_offsets = [sqrt(mean((getindex.(radial_offsets, i)).^2)) for i in range(1,length(ion_orbits[1].sample_times))]
-    mean_axial_offsets = [mean(getindex.(axial_offsets, i)) for i in range(1,length(ion_orbits[1].sample_times))]
-    err_mean_axial_offsets = [std(getindex.(axial_offsets, i))/sqrt(N_ions) for i in range(1,length(ion_orbits[1].sample_times))]
-    RMS_axial_offsets = [sqrt(mean((getindex.(axial_offsets, i)).^2)) for i in range(1,length(ion_orbits[1].sample_times))]
-         
-    # Mean radial displacements
-    f = plot(ion_orbits[1].sample_times, mean_radial_offsets, legend=false, 
-            ribbon=err_mean_radial_offsets, xlabel="t (s)", ylabel="Mean radial displacement (m)")
-    display(f)
-
-    # RMS radial displacements
-    f = plot(ion_orbits[1].sample_times, RMS_radial_offsets, xlabel="t (s)", 
-            legend=false, ylabel="RMS radial displacement (m)")
-    display(f)
-         
-    # Mean axial displacements
-    f = plot(ion_orbits[1].sample_times, mean_axial_offsets, ribbon=err_mean_axial_offsets, 
-            legend=false, xlabel="t (s)", ylabel="Mean axial displacement (m)")
-    display(f)
+    # # Collect axial and radial displacement metrics
+    # radial_offsets = []
+    # axial_offsets = []
+    # for orbit in ion_orbits
+    #     R = sqrt.(getindex.(orbit.positions, 1).^2 .+ getindex.(orbit.positions, 2).^2)
+    #     Z = getindex.(orbit.positions, 3)
+    #     push!(radial_offsets, R)
+    #     push!(axial_offsets, Z)
+    # end
+    # mean_radial_offsets = [mean(getindex.(radial_offsets, i)) for i in range(1,length(ion_orbits[1].sample_times))]
+    # err_mean_radial_offsets = [std(getindex.(radial_offsets, i))/sqrt(N_ions) for i in range(1,length(ion_orbits[1].sample_times))]
+    # RMS_radial_offsets = [sqrt(mean((getindex.(radial_offsets, i)).^2)) for i in range(1,length(ion_orbits[1].sample_times))]
+    # mean_axial_offsets = [mean(getindex.(axial_offsets, i)) for i in range(1,length(ion_orbits[1].sample_times))]
+    # err_mean_axial_offsets = [std(getindex.(axial_offsets, i))/sqrt(N_ions) for i in range(1,length(ion_orbits[1].sample_times))]
+    # RMS_axial_offsets = [sqrt(mean((getindex.(axial_offsets, i)).^2)) for i in range(1,length(ion_orbits[1].sample_times))]
     
-    # RMS axial displacements
-    f = plot(ion_orbits[1].sample_times, RMS_axial_offsets, ribbon=err_mean_axial_offsets, 
-            legend=false, xlabel="t (s)", ylabel="RMS axial displacement (m)")
-    display(f)
+    # # Radial displacements
+    # f = plot(legend=false, xlabel="t (s)", ylabel="Radial displacement (m)")
+    # for R in radial_offsets
+    #     plot!(ion_orbits[1].sample_times, R)
+    # end
+    # plot!(ion_orbits[1].sample_times, mean_radial_offsets, linewidth=3, 
+    #       linecolor="black",)
+    # display(f)
+
+    # # Mean radial displacements
+    # f = plot(ion_orbits[1].sample_times, mean_radial_offsets, legend=false, 
+    #         ribbon=err_mean_radial_offsets, xlabel="t (s)", ylabel="Mean radial displacement (m)")
+    # display(f)
+
+    # # RMS radial displacements
+    # f = plot(ion_orbits[1].sample_times, RMS_radial_offsets, xlabel="t (s)", 
+    #         legend=false, ylabel="RMS radial displacement (m)")
+    # display(f)
+    
+    # # Axial positions 
+    # f = plot(legend=false, xlabel="t (s)", ylabel="Axial position (m)")
+    # for Z in axial_offsets
+    #     plot!(ion_orbits[1].sample_times, Z)
+    # end
+    # plot!(ion_orbits[1].sample_times, mean_axial_offsets, linecolor="black", 
+    #       linewidth=3)
+    # display(f)
+
+    # # Mean axial positions
+    # f = plot(ion_orbits[1].sample_times, mean_axial_offsets, ribbon=err_mean_axial_offsets, 
+    #         legend=false, xlabel="t (s)", ylabel="Mean axial position (m)")
+    # display(f)
+    
+    # # RMS axial positions
+    # f = plot(ion_orbits[1].sample_times, RMS_axial_offsets, ribbon=err_mean_axial_offsets, 
+    #         legend=false, xlabel="t (s)", ylabel="RMS axial position (m)")
+    # display(f)
                 
-    return ion_orbits
+    #return ion_orbits
 end
