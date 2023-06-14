@@ -97,17 +97,24 @@ function define_potential_interpolation(df)
     return scale(itp, zp_range, rp_range)
 end 
 
-path = string(@__DIR__)*"/../CPET Trap Potentials/Warp/"
-fname = "2022-08-18_1528_RZ_potential_at_5.001e-06srect_well_40V_4p2e05particles_weight100_1e-09s_steps_1us_injection_5us_300K_r_p_1mm.txt" 
-df = load_PIC_potentials(fname; path=path)
-sitp = define_potential_interpolation(df)
-∇V(r::Float64,z::Float64)::SVector{2,Float64} = gradient(sitp, z, r)
-update_gradV!(gradV::Vector{Float64}, r::Float64, z::Float64)::SVector{2,Float64} = Interpolations.gradient!(gradV, sitp, z, r)
+# path = string(@__DIR__)*"/../CPET Trap Potentials/Warp/"
+# fname = "2022-08-18_1528_RZ_potential_at_5.001e-06srect_well_40V_4p2e05particles_weight100_1e-09s_steps_1us_injection_5us_300K_r_p_1mm.txt" 
+# df = load_PIC_potentials(fname; path=path)
+# sitp = define_potential_interpolation(df)
+# ∇V(r::Float64,z::Float64)::SVector{2,Float64} = gradient(sitp, z, r)
+# update_gradV!(gradV::Vector{Float64}, r::Float64, z::Float64)::SVector{2,Float64} = Interpolations.gradient!(gradV, sitp, z, r)
 
-function V_itp(pos::Vector{Float64})::Float64 
+function get_V_sitp(r_b)
+    path = string(@__DIR__)*"/../CPET Trap Potentials/Warp/Runs with 4.2E07 electrons, 100um r grid/Plasma radius "*string(r_b*1e03)*"mm/"
+    fname = "final_RZ_potential.txt" 
+    df = load_PIC_potentials(fname, path=path)
+    return define_potential_interpolation(df)
+end
+
+function V_itp(pos::Vector{Float64}, V_sitp)::Float64 
     """Get interpolated potential at arbitrary position in simulation volume"""
     r = norm(pos[1:2]) 
-    return sitp(pos[3], r)
+    return V_sitp(pos[3], r)
 end
 
 function get_azimuthal_angle(pos::SVector{3,Float64})
@@ -167,7 +174,7 @@ function update_E_fixed!(E, pos)
     E .= -1.0.*[dVdr*cos(phi), dVdr*sin(phi), dVdz]
 end 
 
-function update_E!(E, pos, sitp)
+function update_E!(E, pos, V_sitp)
     """Get interpolated electric field vector [V/m]"""
     r = radial_offset(pos)
     if r != 0.0 
@@ -175,7 +182,7 @@ function update_E!(E, pos, sitp)
     else 
         phi = 0.0
     end
-    dVdz::Float64, dVdr::Float64 = gradient(sitp, pos[3], r)::SVector{2,Float64}  
+    dVdz::Float64, dVdr::Float64 = gradient(V_sitp, pos[3], r)::SVector{2,Float64}  
     E .= -1.0.*[dVdr*cos(phi), dVdr*sin(phi), dVdz]
 end 
 

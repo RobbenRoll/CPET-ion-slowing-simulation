@@ -3,10 +3,11 @@ using HDF5
 using LaTeXStrings
 using LinearAlgebra
 import Base.@kwdef
+default(fmt = :png) # prevent slowdown from dense figures
 include("ParticlePushers.jl")
 
 ##### Define particle trajectory diagnostics
-function plot_trajectory_data(times, positions, velocities; q=e.val, m=m_u.val, n_smooth_E=0)
+function plot_trajectory_data(times, positions, velocities; q=e.val, m=m_u.val, r_b=0.011, n_smooth_E=0)
     plot(times, 10*getindex.(positions,1), xlabel="t (s)", ylabel="x, y, z (m)", label="x*10")
     plot!(times, 10*getindex.(positions,2), label="y*10")
     display(plot!(times, getindex.(positions,3), label="z"))
@@ -19,8 +20,9 @@ function plot_trajectory_data(times, positions, velocities; q=e.val, m=m_u.val, 
 
     display(plot(times, getindex.(velocities,3), xlabel="t", ylabel="vz", label=""))
     
+    V_sitp = get_V_sitp(r_b)
     E_kins = [0.5*m*norm(vel)^2 for vel in velocities]/q
-    E_pots = V_itp.(positions)
+    E_pots = V_itp.(positions, V_sitp)
     E_tots = E_kins + E_pots
     n_smooth_half = Int64(floor(n_smooth_E/2))
     
@@ -161,12 +163,13 @@ function plot_run_results(fname; rel_path="/Tests/OutputFiles/")
     N_ions = run_info.N_ions
     q = run_info.q
     m = run_info.m
+    V_sitp = get_V_sitp(run_info.r_b) # load potential map
 
     # Total energy evolutions
     f = plot(xlabel="Time (s)", ylabel="Total ion energy (eV/q)",  legend=false)
     total_energies = []
     for i in range(1,N_ions)
-        E_tot = [0.5*m*norm(@views Vector(velocity_hists[i,it,:]))^2/q + V_itp(@views Vector(position_hists[i,it,:])) for it in range(1,length(sample_times))]  
+        E_tot = [0.5*m*norm(@views Vector(velocity_hists[i,it,:]))^2/q + @views  V_itp(Vector(position_hists[i,it,:]), V_sitp) for it in range(1,length(sample_times))]  
         plot!(sample_times, E_tot)
         push!(total_energies, E_tot)
     end 
@@ -192,7 +195,7 @@ function plot_run_results(fname; rel_path="/Tests/OutputFiles/")
     par_energies = []
     for i in range(1,N_ions)
         #E_par = 0.5*m*getindex.(velocities,3).^2/q + V_itp.(positions)
-        E_par = [0.5*m*norm(@views Vector(velocity_hists[i,:,3][it,:]))^2/q + V_itp(@views Vector(position_hists[i,:,:][it,:])) for it in range(1,length(sample_times))]  
+        E_par = [0.5*m*norm(@views Vector(velocity_hists[i,:,3][it,:]))^2/q + @views V_itp(Vector(position_hists[i,:,:][it,:]), V_sitp) for it in range(1,length(sample_times))]  
         plot!(sample_times, E_par)
         push!(par_energies, E_par)
     end 

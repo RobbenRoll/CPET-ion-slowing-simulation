@@ -38,10 +38,7 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
     #TODO: Add collision type counter
 
     # Load potential data
-    path = string(@__DIR__)*"/../CPET Trap Potentials/Warp/Runs with 4.2E07 electrons, 100um r grid/Plasma radius "*string(r_b*1e03)*"mm/"
-    #fname = "2022-08-18_1528_RZ_potential_at_5.001e-06srect_well_40V_4p2e05particles_weight100_1e-09s_steps_1us_injection_5us_300K_r_p_"*string(r_b*1e03)*"mm.txt" 
-    df = load_PIC_potentials("final_RZ_potential.txt"; path=path)
-    sitp = define_potential_interpolation(df)
+    V_sitp = get_V_sitp(r_b)
 
     function inside_plasma(r, n_b) # TODO: derive plasma bounds from Warp PIC data 
         return Bool(-0.03 < r[3] < 0.05 && n_b > 0.)
@@ -49,7 +46,7 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
 
     for t in times 
         # Get E-field and step
-        update_E!(E, r, sitp) #update_E!(E, r) # E = E_itp(r)
+        update_E!(E, r, V_sitp) #update_E!(E, r) # E = E_itp(r)
         if inside_plasma(r, n_b) 
             r_next, u_next_half = Boris_push_with_friction(r, u_last_half, E, B, dt, q=q, m=m, dW, norm_dist,
                                                            n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, 
@@ -242,6 +239,10 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp;
     else
         rng = MersenneTwister(seed)
     end
+    if n_b == 0 && r_b > 0
+        println("\nUsing vacuum potential (i.e. r_b=0) as n_b == 0.\n")
+        r_b = 0 # ensure vacuum potential is used for plasma-off runs
+    end 
     x0 = rand(rng, Normal(0.0, σ_xy0), N_ions)
     y0 = rand(rng, Normal(0.0, σ_xy0), N_ions)
     # r0 = rand(rng, Normal(0.0, σ_r0), N_ions)
