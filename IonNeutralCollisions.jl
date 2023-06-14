@@ -68,20 +68,21 @@ function get_b_max(v_i::SVector{3,Float64}, q::Float64, m_i::Float64; m_n=2*m_u.
     return sqrt(Xsec/π)
 end
 
-function rand_b(b_max::Float64)
+function rand_b(b_max::Float64; rng=default_rng())
     """Draw random impact parameter [m]"""
-    u = rand(Float64)
+    u = rand(rng, Float64)
     return b_max*sqrt(u)
 end
 
-function ion_neutral_collision(v_i::SVector{3,Float64}, q::Float64, m_i::Float64; m_n=2*m_u.val, alpha=alpha_H2, T_n=300., CX_frac=0.)
+function ion_neutral_collision(v_i::SVector{3,Float64}, q::Float64, m_i::Float64; 
+                               m_n=2*m_u.val, alpha=alpha_H2, T_n=300., CX_frac=0., rng=default_rng())
     """Simulate Monte Carlo ion-neutral collision
     
     CX_fraction : Float64   
         Fraction of glanzing collisions that results in charge exchange rather than elastic scattering.
     """
     ### Generate random neutral velocity vector in lab frame (sampled from Maxwellian)
-    v_n =  rand(Normal(0, sqrt(k_B.val*T_n/m_n)), 3) # sample velocity from Maxwellian distribution
+    v_n =  rand(rng, Normal(0, sqrt(k_B.val*T_n/m_n)), 3) # sample velocity from Maxwellian distribution
 
     ### Transform velocity vectors into centre-of-momentum (COM) frame (see ShortMSc2018 for equations)
     v_COM = (m_i*v_i .+ m_n*v_n)./(m_i + m_n) # velocity of COM in lab frame
@@ -92,15 +93,15 @@ function ion_neutral_collision(v_i::SVector{3,Float64}, q::Float64, m_i::Float64
     ### Draw random impact parameter
     b_crit = get_b_crit(v_i, q, m_i, m_n=m_n, alpha=alpha, T_n=T_n)
     b_max = get_b_max(v_i, q, m_i, m_n=m_n, alpha=alpha, T_n=T_n)
-    b = rand_b(b_max)
+    b = rand_b(b_max, rng=rng)
 
     ### Select the collision type (elastic or Langevin)
     if b < b_crit 
-        θ = π*rand(Float64) # polar scattering angle in COM 
+        θ = π*rand(rng, Float64) # polar scattering angle in COM 
         coll_type = "Langevin"
     else
-        if rand(Float64) <= CX_frac
-            coll_type = "CX"
+        if rand(rng, Float64) <= CX_frac
+            coll_type = "CX" # TODO: IMPLEMENT CX collision
         else
             coll_type = "glanzing"
         end
@@ -108,7 +109,7 @@ function ion_neutral_collision(v_i::SVector{3,Float64}, q::Float64, m_i::Float64
     end
     ### Determine COM ion velocity after collision
     #θ =     # polar scattering angle in COM 
-    ϕ = 2*π*rand(Float64) # azimuthal scattering angle in COM frame
+    ϕ = 2*π*rand(rng, Float64) # azimuthal scattering angle in COM frame
     w_i_final = norm(w_i)*[cos(ϕ)*sin(θ), sin(ϕ)*sin(θ), cos(θ)] # ion velocity in COM frame after collision 
     if coll_type == "CX" 
         # Handle CX (set final ion to final atom velocity) # TODO: VERIFY

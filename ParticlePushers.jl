@@ -97,7 +97,7 @@ function define_potential_interpolation(df)
     return scale(itp, zp_range, rp_range)
 end 
 
-path = "./../CPET Trap Potentials/Warp/"
+path = string(@__DIR__)*"/../CPET Trap Potentials/Warp/"
 fname = "2022-08-18_1528_RZ_potential_at_5.001e-06srect_well_40V_4p2e05particles_weight100_1e-09s_steps_1us_injection_5us_300K_r_p_1mm.txt" 
 df = load_PIC_potentials(fname; path=path)
 sitp = define_potential_interpolation(df)
@@ -155,7 +155,7 @@ function radial_offset(pos::SVector{3, Float64})::Float64
     return sqrt(pos[1]^2 + pos[2]^2)
 end 
 
-function update_E!(E, pos)
+function update_E_fixed!(E, pos)
     """Get interpolated electric field vector [V/m]"""
     r = radial_offset(pos)
     if r != 0.0 
@@ -164,6 +164,18 @@ function update_E!(E, pos)
         phi = 0.0
     end
     dVdz::Float64, dVdr::Float64 = ∇V(r, pos[3])
+    E .= -1.0.*[dVdr*cos(phi), dVdr*sin(phi), dVdz]
+end 
+
+function update_E!(E, pos, sitp)
+    """Get interpolated electric field vector [V/m]"""
+    r = radial_offset(pos)
+    if r != 0.0 
+        phi = get_azimuthal_angle(pos)
+    else 
+        phi = 0.0
+    end
+    dVdz::Float64, dVdr::Float64 = gradient(sitp, pos[3], r)::SVector{2,Float64}  
     E .= -1.0.*[dVdr*cos(phi), dVdr*sin(phi), dVdz]
 end 
 
@@ -293,7 +305,7 @@ end
 ##### Boris particle pusher with Euler-Maryurama velocity diffusion
 const I33 = Matrix{Int}(I, 3, 3) # define identity matrix
 function Boris_push_with_friction(r, u, E, B, dt, dW, norm_dist; q=e.val, m=m_u.val, 
-    n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, velocity_diffusion=true) 
+    n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, velocity_diffusion=true, rng=default_rng()) 
     """Boris particle pusher based on advanced implementation from Zentani2018 
 
     Extended to include friction and optionally velocity diffusion
@@ -312,13 +324,13 @@ function Boris_push_with_friction(r, u, E, B, dt, dW, norm_dist; q=e.val, m=m_u.
 
     u = u_p + eps_dt - u_p*get_ν_s(norm(u_p), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)*dt # Eqn. 5 plus friction
     if velocity_diffusion && n_b > 0.0
-    # Add Euler Maryuama step
-    D_par = get_D_par(norm(u_p), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
-    D_perp = get_D_perp(norm(u_p), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
-    uu_normed = u_m*transpose(u_m)/norm(u_m)^2 
-    rand!(norm_dist, dW) 
+        # Add Euler Maryuama step
+        D_par = get_D_par(norm(u_p), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
+        D_perp = get_D_perp(norm(u_p), n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
+        uu_normed = u_m*transpose(u_m)/norm(u_m)^2 
+        rand!(rng, norm_dist, dW) 
 
-    u += ( sqrt(D_par)*uu_normed + sqrt(D_perp)*(I33 - uu_normed) )*dW
+        u += ( sqrt(D_par)*uu_normed + sqrt(D_perp)*(I33 - uu_normed) )*dW
     end
     r += u/gamma_from_u(u)*dt # Eqn. 1
 
@@ -411,5 +423,3 @@ function GC_push_with_gyrophase_old(R, μ, v_par_last_half, gyrophase, B, dt; q=
 
     return R_next, μ_next, v_par_next_half, gyrophase_next
 end
-
-
