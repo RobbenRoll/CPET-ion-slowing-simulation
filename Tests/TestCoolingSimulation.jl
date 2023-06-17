@@ -12,15 +12,15 @@ const B = [0.,0.,7.]
 # Define ion initial conditions
 q = e.val
 m = 23*m_u.val
-const N_ions = 10 #100
+const N_ions = 100
 const μ_z0 = -0.125
-const σ_z0 = 0.005
-const σ_xy0 = 0.001
-const μ_E0_par, σ_E0_par = 80., 8.
+const σ_z0 = 0.003
+const σ_xy0 = 0.0005
+const μ_E0_par, σ_E0_par = 81., 8.
 const σ_E0_perp = 0.5
 
 # Define plasma parameters
-n_b = 1e09*1e06 #1e07*1e06
+n_b = 0.0 #1e07*1e06
 T_b = 300.
 const q_b = -e.val 
 const m_b = m_e.val
@@ -35,13 +35,13 @@ T_n = 300.
 
 # Define run parameters
 n_procs = 9
-t_end = 37.00e-03 #3700e-03
+t_end = 3700e-03
 dt = 1e-08
-sample_every = 10 #10000
+sample_every = 10000
 velocity_diffusion = true
 now = Dates.now()
 datetime = Dates.format(now, "yyyy-mm-dd_HHMM_")
-output_path = "Tests/OutputFiles/" * datetime * "test_run_plasma_on"
+output_path = "Tests/OutputFiles/" * datetime * "test_run_plasma_off"
 
 ##### Run test simulation
 using ProfileView

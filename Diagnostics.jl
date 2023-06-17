@@ -1,7 +1,11 @@
+#!/usr/bin/julia
 using Plots
 using HDF5
+using Printf
 using LaTeXStrings
 using LinearAlgebra
+using NaNStatistics
+using PyCall
 import Base.@kwdef
 default(fmt = :png) # prevent slowdown from dense figures
 include("ParticlePushers.jl")
@@ -22,7 +26,7 @@ function plot_trajectory_data(times, positions, velocities; q=e.val, m=m_u.val, 
     
     V_sitp = get_V_sitp(r_b)
     E_kins = [0.5*m*norm(vel)^2 for vel in velocities]/q
-    E_pots = V_itp.(positions, V_sitp)
+    E_pots = V_itp.(positions, V_sitp=V_sitp)
     E_tots = E_kins + E_pots
     n_smooth_half = Int64(floor(n_smooth_E/2))
     
@@ -68,6 +72,7 @@ function plot_adiabatic_invariants(times, positions, velocities; m=m_u.val, B=1.
 end
 
 @kwdef struct RunInfo
+    fname::string
     datetime::String 
     t_end::Float64
     dt::Float64 
@@ -101,6 +106,7 @@ function get_run_info(fname; rel_path="/Tests/OutputFiles/")
     fid = h5open(path, "r")
     info = fid["RunInfo"]
     run_info = RunInfo(
+                        filepath = read(info["filepath"])
                         datetime = read(info["datetime"]), 
                         t_end = read(info["t_end"]),
                         dt = read(info["dt"]),
@@ -131,8 +137,12 @@ function get_run_info(fname; rel_path="/Tests/OutputFiles/")
     return run_info
 end
 
-function print_RunInfo()
-    nothing
+function print_RunInfo(run_info)
+    """Print formatted representation of RunInfo"""
+    for name in fieldnames(typeof(run_info))
+        val = getfield(run_info, name)
+        @printf("%25s:  %s \n", name, val)
+    end
 end
 
 function get_ion_orbits(fname; rel_path="/Tests/OutputFiles/")
@@ -150,7 +160,76 @@ function get_ion_orbits(fname; rel_path="/Tests/OutputFiles/")
     return sample_times, position_hists, velocity_hists
 end
 
-function plot_run_results(fname; rel_path="/Tests/OutputFiles/")
+function get_exp_data(exp_data_fname, dir_path="../../CPET DAQ data/")
+    """Load experimental ion energy data from .npy file"""
+    np = pyimport("numpy")
+    exp_data = np.load(dir_path * exp_data_fname, allow_pickle=true)[1]
+    return exp_data
+end 
+
+function nanmask(A, m)
+    B = copy(A)
+    B[m] .= NaN
+    return B 
+ end
+
+ function apply_ramp_correction(energies, V_nest_eff; species="23Na")
+    """Correct ion energies for adiabatic cooling correction"""
+    path = "../VoltageRampCorrection/"
+    corr_energies = []
+    initial_energies = []
+    eff_nest_depths = Vector(28:2:40)
+    for nest_depth in eff_nest_depths
+        fname = "phase-averaged_ion_energies_after_extraction_"*species*"_"*string(nest_depth)*"V_eff_nest_depth_0V_RFA_barrier.csv"
+        csv_file = CSV.File(path * fname)
+        df = DataFrame(csv_file)
+        rename!(df,[:E_initial,:E_final,:std_E_final,:extraction_prob])
+        
+        # Add in missing data at even V_nest_eff -0.01 / +0.025 eV
+        for V in eff_nest_depths
+            for E_init in [V - 0.01, V + 0.025]
+                if !(E_init in df.E_initial)
+                    E_below = V - mod(V, 5)
+                    E_above = E_below + 5
+                    if E_below in df.E_initial && E_above in df.E_initial 
+                        interp_row = Matrix(df[(df.E_initial.==E_below),:]) + (Matrix(df[(df.E_initial.==E_above),:]) - Matrix(df[(df.E_initial.==E_below),:]))*mod(V,5)/(E_above - E_below)
+                    elseif !(E_below in df.E_initial)
+                        E_below = V - mod(V, 5) + 0.025
+                        E_above = E_below + 4.975
+                        interp_row = Matrix(df[(df.E_initial.==E_below),:]) + (Matrix(df[(df.E_initial.==E_above),:]) - Matrix(df[(df.E_initial.==E_below),:]))*(mod(V,5) - 0.025)/(E_above - E_below)
+                    elseif !(E_above in df.E_initial)
+                        E_below = V - mod(V, 5)
+                        E_above = round(E_below + 4.99, digits=3)
+                        interp_row = Matrix(df[(df.E_initial.==E_below),:]) + (Matrix(df[(df.E_initial.==E_above),:]) - Matrix(df[(df.E_initial.==E_below),:]))*(mod(V,5) + 0.010)/(E_above - E_below)
+                    end 
+                    interp_row[1] = E_init
+                    push!(df, interp_row)
+                end
+            end
+        end
+        # Add interpolations for missing rows at 30V and 40V 
+        if !(30. in df.E_initial)
+            E_below = 29.99
+            E_above = 30.025
+            interp_row = Matrix(df[(df.E_initial.==E_below),:]) + (Matrix(df[(df.E_initial.==E_above),:]) - Matrix(df[(df.E_initial.==E_below),:]))*0.010/(E_above - E_below)
+            push!(df, interp_row)
+        elseif !(40. in df.E_initial)
+            E_below = 39.99
+            E_above = 40.025
+            interp_row = Matrix(df[(df.E_initial.==E_below),:]) + (Matrix(df[(df.E_initial.==E_above),:]) - Matrix(df[(df.E_initial.==E_below),:]))*0.010/(E_above - E_below)
+            push!(df, interp_row)
+        end
+        sort!(df, :E_initial)
+        push!(corr_energies, df.E_final)
+        initial_energies = df.E_initial
+    end
+    corr_energies = stack(corr_energies)
+    itp = interpolate( (initial_energies, eff_nest_depths), corr_energies, Gridded(Linear()) ) 
+    exitp = extrapolate(itp, Line())
+    return exitp(energies, V_nest_eff)    
+end
+
+function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_r=8e-04, ramp_correction=true, exp_data_fname=nothing)
     """Plot diagnostics for ion orbit data stored in HDF5 file"""
     run_info = get_run_info(fname; rel_path=rel_path)
 
@@ -163,72 +242,226 @@ function plot_run_results(fname; rel_path="/Tests/OutputFiles/")
     N_ions = run_info.N_ions
     q = run_info.q
     m = run_info.m
+    if m == 23*m_u.val
+        species = "23Na"
+    elseif m == 39*m_u.val
+        species = "39K"
+    elseif m == 85*m_u.val
+        species = "85Rb"
+    else 
+        species = ""
+    end
     V_sitp = get_V_sitp(run_info.r_b) # load potential map
+
+    # Fetch and prepare experimental data from .npy file
+    if !isnothing(exp_data_fname)
+        exp_data = get_exp_data(exp_data_fname)
+        times_exp = get(exp_data,"Interaction times")/1000 # [s]
+        if run_info.n_b > 0 # fetch plasma-on data
+            mean_E_par_exp = get(exp_data,"mean_E unmuted") # [eV/q]
+            err_mean_E_par_exp = get(exp_data,"Error mean_E unmuted") # [eV/q]
+            std_E_par_exp = get(exp_data,"sigma_E unmuted") # [eV/q]
+            N_ions_exp = get(exp_data, "N_ions unmuted")
+            err_N_ions_exp = get(exp_data, "Error N_ions unmuted")
+        else # fetch plasma-off data
+            mean_E_par_exp = get(exp_data,"mean_E muted") # [eV/q]
+            err_mean_E_par_exp = get(exp_data,"Error mean_E muted") # [eV/q]
+            std_E_par_exp = get(exp_data,"sigma_E muted") # [eV/q]
+            N_ions_exp = get(exp_data, "N_ions muted")
+            err_N_ions_exp = get(exp_data, "Error N_ions muted")
+        end
+    end
+
+    # Define convenience functions for grabbing data from position and velocity histories
+    get_detectable_N_ions(A) = [countnotnans(A[:,it,:]) for it in range(1, length(sample_times))]
+    get_mean(A) = transpose(nanmean(A, dims=1))
+    get_std(A) = transpose(nanstd(A, dims=1))
+    get_err_of_mean(A) = get_std(A)/sqrt.(get_detectable_N_ions(A))
+    get_RMSD(A) = transpose(sqrt.(nanmean(A.^2, dims=1)))
+
+    # Determine effective nest depth and set threshold energy for determining 
+    # ions localized in entrance-side potential well
+    V_nest_eff = mean(V_itp_on_axis(Vector(0:0.001:0.025), V_sitp))
+    V_thres = V_nest_eff - 5*k_B.val*run_info.T_b/abs(run_info.q_b) 
+
+    # Collect longitudinal energy data 
+    E_par = []
+    for i in range(1,N_ions)
+        E_par_i = [0.5*m*norm(@views velocity_hists[i,it,3])^2/q + @views V_itp(position_hists[i,it,:], V_sitp=V_sitp) for it in range(1,length(sample_times))]  
+        if ramp_correction # correct ion energies for endcap voltage ramp
+            E_par_i = apply_ramp_correction(E_par_i, V_nest_eff, species=species)
+        end
+        push!(E_par, E_par_i)
+    end 
+    E_par = transpose(stack(E_par)) # idx1: ion number, idx2: time step
+    detectable = ((E_par .> V_thres .|| position_hists[:,:,3] .> 0.0) .&&  sqrt.(position_hists[:,:,1].^2 .+ position_hists[:,:,2].^2) .<= max_detectable_r) # bool-mask for detectable ions
+    detectable_E_par = nanmask(E_par, @. !detectable)
+    mean_E_par = get_mean(E_par) #transpose(mean(E_par, dims=1))
+    std_E_par = get_std(E_par) #transpose(std(E_par, dims=1))
+    err_mean_E_par = get_err_of_mean(E_par) #std_E_par/sqrt(N_ions) 
+    
+    detectable_N_ions = get_detectable_N_ions(detectable_E_par) #[countnotnans(detectable_E_par[:,it,:]) for it in range(1, length(sample_times))]
+    detectable_mean_E_par = get_mean(detectable_E_par) #transpose(nanmean(detectable_E_par, dims=1))
+    detectable_std_E_par = get_std(detectable_E_par) #transpose(nanstd(detectable_E_par, dims=1))
+    detectable_err_mean_E_par = get_err_of_mean(detectable_E_par) #detectable_std_E_par/sqrt.(detectable_N_ions) 
+    
+    # Detectable ion fraction
+    function plot_detectable_ion_number(sample_times, detectable_N_ions, exp_data_fname)
+        f = plot(sample_times, detectable_N_ions/N_ions, xlabel="t (s)", ylabel="Detectable ion fraction", label="model")
+        if !isnothing(exp_data_fname)
+            scatter!(times_exp, N_ions_exp/maximum(N_ions_exp), yerror=err_N_ions_exp/maximum(N_ions_exp), 
+                     linecolor="red", markershape=:circle, label="exp. data")
+        end 
+        display(f)
+    end
+    plot_detectable_ion_number(sample_times, detectable_N_ions, exp_data_fname)
+    # f = plot(sample_times, get_detectable_N_ions(detectable_E_par)/N_ions, xlabel="t (s)", ylabel="Detectable ion fraction", label="model")
+    # if !isnothing(exp_data_fname)
+    #     scatter!(times_exp, N_ions_exp/maximum(N_ions_exp), yerror=err_N_ions_exp/maximum(N_ions_exp), 
+    #             markershape=:circle, label="exp. data")
+    # end 
+    # display(f)
+
+    # Longitudinal energy evolutions
+    f = plot(xlabel="Time (s)", ylabel=L"Longitudinal ion energy $E_\parallel$ (eV/q)",  legend=false)
+    plot!(sample_times, [E_par[i,:,:] for i in range(1,N_ions)], linestyle=:dash)
+    plot!(sample_times, [detectable_E_par[i,:,:] for i in range(1,N_ions)]) # TODO use same colors as for dashed lines
+    plot!(sample_times, detectable_mean_E_par, linewidth=3, linecolor="red")
+    plot!(sample_times, mean_E_par, linewidth=3, linecolor="black")
+    if !isnothing(exp_data_fname)
+        scatter!(times_exp, mean_E_par_exp , yerror=err_mean_E_par_exp, 
+                 markershape=:circle, label="exp. data")
+    end 
+    display(f)
+    # f = plot(xlabel="Time (s)", ylabel=L"Longitudinal ion energy $E_\parallel$ (eV/q)",  legend=false)
+    # plot!(sample_times, [E_par[i,:,:] for i in range(1,N_ions)], linestyle=:dash)
+    # plot!(sample_times, get_mean(E_par), linewidth=3, linecolor="black")
+    # plot!(sample_times, [detectable_E_par[i,:,:] for i in range(1,N_ions)]) # TODO use same colors as for dashed lines
+    # plot!(sample_times, get_mean(detectable_E_par), linewidth=3, linecolor="black")
+    # if !isnothing(exp_data_fname)
+    #     scatter!(times_exp, mean_E_par_exp , yerror=err_mean_E_par_exp, 
+    #             markershape=:circle, label="exp. data")
+    # end 
+    # display(f)
+
+    # Mean longitudinal energy evolution
+    f = plot(xlabel="Time (s)", ylabel=L"Mean longitudinal ion energy $\langle E_\parallel\rangle$ (eV/q)", legend=true)
+    plot!(sample_times, detectable_mean_E_par, 
+          ribbon=detectable_err_mean_E_par, linewidth=1, linecolor="red", label="Detectable ions")
+    plot!(sample_times, mean_E_par, 
+          ribbon=err_mean_E_par, linewidth=1, linecolor="black", label="All ions")
+    if !isnothing(exp_data_fname)
+        scatter!(times_exp, mean_E_par_exp , yerror=err_mean_E_par_exp, 
+                 markershape=:circle, label="exp. data")
+    end 
+    display(f)
+    # f = plot(xlabel="Time (s)", ylabel=L"Mean longitudinal ion energy $\langle E_\parallel\rangle$ (eV/q)", legend=false)
+    # plot!(sample_times, get_mean(E_par), 
+    #     ribbon=get_err_of_mean(E_par), linewidth=3, linecolor="black", label="All ions")
+    # plot!(sample_times, get_mean(detectable_E_par), 
+    #     ribbon=get_err_of_mean(detectable_E_par), linewidth=3, linecolor="red", label="Detectable ions only")
+    # if !isnothing(exp_data_fname)
+    #     scatter!(times_exp, mean_E_par_exp , yerror=err_mean_E_par_exp, 
+    #             markershape=:circle, label="exp. data")
+    # end 
+    # display(f)
+
+    # Sample standard deviation of longitudinal energy evolutions
+    f = plot(xlabel="Time (s)", ylabel=L"Std. dev. of  $E_\parallel$ (eV/q)", legend=true)
+    plot!(sample_times, detectable_std_E_par, linecolor="red", label="Detectable ions")
+    plot!(sample_times, std_E_par, linecolor="black", label="All ions")
+    
+    if !isnothing(exp_data_fname)
+        scatter!(times_exp, std_E_par_exp, 
+                 markershape=:circle, label="exp. data")
+    end 
+    display(f)
+    # f = plot(xlabel="Time (s)", ylabel=L"Std. dev. of  $E_\parallel$ (eV/q)", legend=false)
+    # plot!(sample_times, get_std(E_par), label="All ions")
+    # plot!(sample_times, get_std(detectable_E_par), linecolor="red", label="Detectable ions only")
+    # if !isnothing(exp_data_fname)
+    #     scatter!(times_exp, std_E_par_exp, 
+    #             markershape=:circle, label="exp. data")
+    # end 
+    # display(f)
 
     # Total energy evolutions
     f = plot(xlabel="Time (s)", ylabel="Total ion energy (eV/q)",  legend=false)
-    total_energies = []
+    E_tot = []
     for i in range(1,N_ions)
-        E_tot = [0.5*m*norm(@views Vector(velocity_hists[i,it,:]))^2/q + @views  V_itp(Vector(position_hists[i,it,:]), V_sitp) for it in range(1,length(sample_times))]  
-        plot!(sample_times, E_tot)
-        push!(total_energies, E_tot)
+        E_tot_i = [0.5*m*norm(@views velocity_hists[i,it,:])^2/q + @views V_itp(position_hists[i,it,:], V_sitp=V_sitp) for it in range(1,length(sample_times))]  
+        if ramp_correction # correct ion energies for endcap voltage ramp
+            E_tot_i = apply_ramp_correction(E_tot_i, V_nest_eff, species=species)
+        end
+        plot!(sample_times, E_tot_i)
+        push!(E_tot, E_tot_i)
     end 
-    mean_energies = [mean(getindex.(total_energies, i)) for i in range(1,length(sample_times))]
-    std_energies = [std(getindex.(total_energies, i)) for i in range(1,length(sample_times))]    
-    err_mean_energies = std_energies/sqrt(N_ions) # TODO: use detectable ion number
-    plot!(sample_times, mean_energies, linewidth=3, linecolor="black")
+    E_tot = transpose(stack(E_tot))
+    mean_E_tot = get_mean(E_tot) #[mean(getindex.(E_tot, it)) for it in range(1,length(sample_times))]
+    std_E_tot = get_std(E_tot) #[std(getindex.(E_tot, it)) for it in range(1,length(sample_times))]    
+    err_mean_E_tot = get_err_of_mean(E_tot) #std_energies/sqrt(N_ions) # TODO: use detectable ion number
+    detectable_E_tot = nanmask(E_tot, @. !detectable)
+    detectable_mean_E_tot = get_mean(detectable_E_tot)
+    detectable_std_E_tot = get_std(detectable_E_tot)
+    detectable_err_mean_E_tot = get_err_of_mean(detectable_E_tot)
+    plot!(sample_times, detectable_mean_E_tot, linewidth=3, linecolor="red")
+    plot!(sample_times, mean_E_tot, linewidth=3, linecolor="black")
     display(f)
 
-    # Mean energy evolution
-    f = plot(xlabel="Time (s)", ylabel="Mean ion energy (eV/q)", legend=false)
-    plot!(sample_times, mean_energies, 
-          ribbon=err_mean_energies, linewidth=3, linecolor="black")
+    # # Collect total energies
+    # E_tot = []
+    # for i in range(1,N_ions)
+    #     E_tot_i = [0.5*m*norm(@views velocity_hists[i,it,:])^2/q + @views V_itp(position_hists[i,it,:], V_sitp=V_sitp) for it in range(1,length(sample_times))]  
+    #     push!(E_tot, E_tot_i)
+    # end 
+    # E_tot = transpose(stack(E_tot))
+    # detectable_E_tot = nanmask(E_tot, @. !detectable)
+    # # Total energy evolutions
+    # f = plot(xlabel="Time (s)", ylabel=L"Longitudinal ion energy $E_\parallel$ (eV/q)",  legend=false)
+    # plot!(sample_times, [E_tot[i,:,:] for i in range(1,N_ions)], linestyle=:dash)
+    # plot!(sample_times, get_mean(E_tot), linewidth=3, linecolor="black")
+    # plot!(sample_times, [detectable_E_tot[i,:,:] for i in range(1,N_ions)]) # TODO use same colors as for dashed lines
+    # plot!(sample_times, get_mean(detectable_E_tot), linewidth=3, linecolor="red")
+    # display(f)
+
+    # Mean total energy evolution
+    f = plot(xlabel="Time (s)", ylabel="Mean ion energy (eV/q)", legend=true)
+    plot!(sample_times, detectable_mean_E_tot, 
+          ribbon=detectable_err_mean_E_tot, linewidth=1, linecolor="red", label="Detectable ions")
+    plot!(sample_times, mean_E_tot, 
+          ribbon=err_mean_E_tot, linewidth=1, linecolor="black", label="All ions")
     display(f)
+    # f = plot(xlabel="Time (s)", ylabel=L"Mean ion energy $\langle E\rangle$ (eV/q)", legend=false)
+    # plot!(sample_times, get_mean(E_tot), 
+    #       ribbon=get_err_of_mean(E_tot), linewidth=3, linecolor="black", label="All ions")
+    # plot!(sample_times, get_mean(detectable_E_tot), 
+    #       ribbon=get_err_of_mean(detectable_E_tot), linewidth=3, linecolor="red", label="Detectable ions only")
+    #  display(f)
 
     # Sample standard deviation of total energy evolutions
-    f = plot(xlabel="Time (s)", ylabel=L"Std. dev. of $E$ (eV/q)", legend=false)
-    plot!(sample_times, std_energies)
-    display(f)
-
-    # Longitudinal energy evolutions 
-    f = plot(xlabel="Time (s)", ylabel=L"Longitudinal ion energy $E_\parallel$ (eV/q)",  legend=false)
-    par_energies = []
-    for i in range(1,N_ions)
-        #E_par = 0.5*m*getindex.(velocities,3).^2/q + V_itp.(positions)
-        E_par = [0.5*m*norm(@views Vector(velocity_hists[i,:,3][it,:]))^2/q + @views V_itp(Vector(position_hists[i,:,:][it,:]), V_sitp) for it in range(1,length(sample_times))]  
-        plot!(sample_times, E_par)
-        push!(par_energies, E_par)
-    end 
-    mean_par_energies = [mean(getindex.(par_energies, it)) for it in range(1,length(sample_times))]
-    std_par_energies = [std(getindex.(par_energies, it)) for it in range(1,length(sample_times))]                  
-    err_mean_par_energies = std_par_energies/sqrt(N_ions) # TODO: use detectable ion number
-    plot!(sample_times, mean_par_energies, linewidth=3, linecolor="black")
-    display(f)
-  
-    # Mean longitudinal energy evolution
-    f = plot(xlabel="Time (s)", ylabel=L"Mean longitudinal ion energy $\langle E_\parallel\rangle$ (eV/q)", legend=false)
-    plot!(sample_times, mean_par_energies, 
-          ribbon=err_mean_par_energies, linewidth=3, linecolor="black")
-    display(f)
-
-    # Sample standard deviation of longitudinal energy evolutions
-    f = plot(xlabel="Time (s)", ylabel=L"Std. dev. of  $E_\parallel$ (eV/q)", legend=false)
-    plot!(sample_times, std_par_energies)
+    f = plot(xlabel="Time (s)", ylabel=L"Std. dev. of  $E$ (eV/q)", legend=true)
+    plot!(sample_times, detectable_std_E_tot, linecolor="red", label="Detectable ions")
+    plot!(sample_times, std_E_tot, linecolor="black", label="All ions")
     display(f)
 
     # 3D scatter of final ion positions
     it = length(sample_times)
-    X = [@views position_hists[i,it,1] for i in range(1,N_ions)] 
-    Y = [@views position_hists[i,it,2] for i in range(1,N_ions)]  
-    Z = [@views position_hists[i,it,3] for i in range(1,N_ions)]                       
+    X = @views position_hists[:,it,1] 
+    Y = @views position_hists[:,it,2] 
+    Z = @views position_hists[:,it,3]  
+    detectable_X = @views nanmask(position_hists[:,:,1] , @. !detectable)[:,it] 
+    detectable_Y = @views nanmask(position_hists[:,:,2] , @. !detectable)[:,it] 
+    detectable_Z = @views nanmask(position_hists[:,:,3] , @. !detectable)[:,it]                    
 
-    f = scatter(Z, X, Y, xlabel="z (m)", ylabel="x (m)", zlabel="y (m)", 
-                legend=false, title="Final ion distribution")
+    f = scatter(ylabel="x (m)", zlabel="y (m)", legend=true, title="Final ion distribution",)
+    scatter!(Z, X, Y, xlabel="z (m)", label="All ions") 
+    scatter!(detectable_Z, detectable_X, detectable_Y, markercolor="red", label="Detectable ions")
     display(f)
 
     # ZR scatter of final ion positions
-    f = scatter(Z, sqrt.(X.^2 + Y.^2), xlabel="z (m)", ylabel="r (m)", xlim=(-0.15,0.15), 
-                legend=false, title="Final ion distribution")
+    f = scatter(xlabel="z (m)", ylabel="r (m)", xlim=(-0.15,0.15), legend=true, title="Final ion distribution")
+    scatter!(Z, sqrt.(X.^2 + Y.^2), label="All ions")
+    scatter!(detectable_Z, sqrt.(detectable_X.^2 + detectable_Y.^2), markercolor="red", label="Detectable ions")
     display(f)
 
     # Collect axial and radial displacement metrics
@@ -240,49 +473,62 @@ function plot_run_results(fname; rel_path="/Tests/OutputFiles/")
         push!(radial_offsets, R)
         push!(axial_offsets, Z)
     end
-    mean_radial_offsets = [mean(getindex.(radial_offsets, it)) for it in range(1,length(sample_times))]
-    err_mean_radial_offsets = [std(getindex.(radial_offsets, it))/sqrt(N_ions) for it in range(1,length(sample_times))]
-    RMS_radial_offsets = [sqrt(mean((getindex.(radial_offsets, it)).^2)) for it in range(1,length(sample_times))]
-    mean_axial_offsets = [mean(getindex.(axial_offsets, it)) for it in range(1,length(sample_times))]
-    err_mean_axial_offsets = [std(getindex.(axial_offsets, it))/sqrt(N_ions) for it in range(1,length(sample_times))]
-    RMS_axial_offsets = [sqrt(mean((getindex.(axial_offsets, it)).^2)) for it in range(1,length(sample_times))]
+    radial_offsets = transpose(stack(radial_offsets))
+    axial_offsets = transpose(stack(axial_offsets))
+    detectable_radial_offsets = nanmask(radial_offsets, @. !detectable)
+    detectable_axial_offsets = nanmask(axial_offsets, @. !detectable)
+    
+    # mean_radial_offsets = [mean(getindex.(radial_offsets, it)) for it in range(1,length(sample_times))]
+    # err_mean_radial_offsets = [std(getindex.(radial_offsets, it))/sqrt(N_ions) for it in range(1,length(sample_times))]
+    # # Radial displacements
+    # f = plot(legend=false, xlabel="t (s)", ylabel="Transverse displacement (m)")
+    # for R in radial_offsets
+    #     plot!(sample_times, R)
+    # end
+    # plot!(sample_times, mean_radial_offsets, linewidth=3, 
+    #       linecolor="black",)
+    # display(f)
 
-    # Radial displacements
-    f = plot(legend=false, xlabel="t (s)", ylabel="Transverse displacement (m)")
-    for R in radial_offsets
-        plot!(sample_times, R)
-    end
-    plot!(sample_times, mean_radial_offsets, linewidth=3, 
-          linecolor="black",)
-    display(f)
-
-    # Mean radial displacements
-    f = plot(sample_times, mean_radial_offsets, legend=false, 
-            ribbon=err_mean_radial_offsets, xlabel="t (s)", ylabel="Mean transverse displacement (m)")
-    display(f)
+    # # Mean radial displacements
+    # f = plot(sample_times, mean_radial_offsets, legend=false, 
+    #          ribbon=err_mean_radial_offsets, xlabel="t (s)", ylabel="Mean transverse displacement (m)")
+    # display(f)
 
     # RMS radial displacements
-    f = plot(sample_times, RMS_radial_offsets, xlabel="t (s)", 
-            legend=false, ylabel="RMS transverse displacement (m)")
+    RMS_radial_offsets = get_RMSD(radial_offsets) #[sqrt(mean((getindex.(radial_offsets, it)).^2)) for it in range(1,length(sample_times))]
+    detectable_RMS_radial_offsets = get_RMSD(detectable_radial_offsets) #[sqrt(mean((getindex.( radial_offsets, it)).^2)) for it in range(1,length(sample_times))]
+    f = plot(legend=true, xlabel="t (s)", ylabel="RMS transverse displacement (m)")
+    plot!(sample_times, detectable_RMS_radial_offsets, label="Detectable ions only")
+    plot!(sample_times, RMS_radial_offsets, label="All ions")
     display(f)
 
-    # Axial positions 
-    f = plot(legend=false, xlabel="t (s)", ylabel="Longitudinal position (m)")
-    for Z in axial_offsets
-        plot!(sample_times, Z)
-    end
-    plot!(sample_times, mean_axial_offsets, linecolor="black", 
-          linewidth=3)
-    display(f)
+    # # Axial positions 
+    # f = plot(legend=false, xlabel="t (s)", ylabel="Longitudinal position (m)")
+    # for Z in axial_offsets
+    #     plot!(sample_times, Z)
+    # end
+    # plot!(sample_times, mean_axial_offsets, linecolor="black", 
+    #       linewidth=3)
+    # display(f)
+
+    mean_axial_offsets = get_mean(axial_offsets) #[mean(getindex.(axial_offsets, it)) for it in range(1,length(sample_times))]
+    err_mean_axial_offsets = get_err_of_mean(axial_offsets) #[std(getindex.(axial_offsets, it))/sqrt(N_ions) for it in range(1,length(sample_times))]
+    detectable_mean_axial_offsets = get_mean(detectable_axial_offsets)
+    detectable_err_mean_axial_offsets = get_err_of_mean(detectable_axial_offsets)
 
     # Mean axial positions
-    f = plot(sample_times, mean_axial_offsets, ribbon=err_mean_axial_offsets, 
-            legend=false, xlabel="t (s)", ylabel="Mean longitudinal position (m)")
+    f = plot(legend=true, xlabel="t (s)", ylabel="Mean longitudinal position (m)")
+    plot!(sample_times, detectable_mean_axial_offsets, ribbon=detectable_err_mean_axial_offsets, 
+          label="Detectable ions only")
+    plot!(sample_times, mean_axial_offsets, ribbon=err_mean_axial_offsets, label="All ions")
     display(f)
-
+    
     # RMS axial positions
-    f = plot(sample_times, RMS_axial_offsets, ribbon=err_mean_axial_offsets, 
-            legend=false, xlabel="t (s)", ylabel="RMS longitudinal position (m)")
+    RMS_axial_offsets = get_RMSD(axial_offsets) #[sqrt(mean((getindex.(axial_offsets, it)).^2)) for it in range(1,length(sample_times))]
+    detectable_RMS_axial_offsets = get_RMSD(detectable_axial_offsets)
+    f = plot(legend=true, xlabel="t (s)", ylabel="RMS longitudinal position (m)")
+    plot!(sample_times, detectable_RMS_axial_offsets, label="Detectable ions only")
+    plot!(sample_times, RMS_axial_offsets, label="All ions")
     display(f)
 
     close(fid)

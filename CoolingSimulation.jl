@@ -1,3 +1,4 @@
+#!/usr/bin/julia
 using LinearAlgebra
 using StaticArrays
 using Statistics
@@ -232,6 +233,13 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp;
     println("number of workers = ", nworkers())
     println("number of ions = ", N_ions)
     
+    ### Load potential map
+    if n_b == 0 && r_b > 0
+        println("\nUsing vacuum potential (i.e. r_b=0) as n_b == 0.\n")
+        r_b = 0 # ensure vacuum potential is used for plasma-off runs
+    end 
+    V_sitp = get_V_sitp(r_b)
+
     ### Randomly initialize ion energies and radial positions
     # TODO consider initial conditions
     if isnothing(seed)
@@ -239,10 +247,6 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp;
     else
         rng = MersenneTwister(seed)
     end
-    if n_b == 0 && r_b > 0
-        println("\nUsing vacuum potential (i.e. r_b=0) as n_b == 0.\n")
-        r_b = 0 # ensure vacuum potential is used for plasma-off runs
-    end 
     x0 = rand(rng, Normal(0.0, σ_xy0), N_ions)
     y0 = rand(rng, Normal(0.0, σ_xy0), N_ions)
     # r0 = rand(rng, Normal(0.0, σ_r0), N_ions)
@@ -251,8 +255,8 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp;
     # y0 = [ r0[pid]*sin(ϕ0[pid]) for pid in range(1,N_ions)]
     z0 = rand(rng, Normal(μ_z0, σ_z0), N_ions) # TODO: Set μ_pos0 to capture well centre
     pos0 = [[x0[pid], y0[pid], z0[pid]] for pid in range(1,N_ions)]
-    E0_par = [rand(rng, truncated(Normal(μ_E0_par, σ_E0_par); lower=V_itp(pos0[pid]))) for pid in range(1,N_ions)] #E0_par = rand(Normal(μ_E0_par, σ_E0_par))
-    v0_par = vel_from_E_per_q.(E0_par .- V_itp.(pos0), q, m)
+    E0_par = [rand(rng, truncated(Normal(μ_E0_par, σ_E0_par); lower=V_itp(pos0[pid], V_sitp=V_sitp))) for pid in range(1,N_ions)] #E0_par = rand(Normal(μ_E0_par, σ_E0_par))
+    v0_par = vel_from_E_per_q.(E0_par .- V_itp.(pos0, V_sitp=V_sitp), q, m)
     E0_perp = rand(rng, truncated(Normal(0., σ_E0_perp); lower=0.), N_ions) # TODO: check distributions
     ζ0 = rand(rng, N_ions)*2*pi
     vx0 = vel_from_E_per_q.(E0_perp, q, m).*cos.(ζ0)
@@ -290,6 +294,7 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp;
         # Write general run info to attributes 
         create_group(fid, "RunInfo")
         info = fid["RunInfo"]
+        info["filepath"] = fname * ".h5"
         info["datetime"] = datetime
         info["t_end"] = t_end
         info["dt"] = dt

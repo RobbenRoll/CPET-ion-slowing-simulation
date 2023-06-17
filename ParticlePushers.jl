@@ -1,3 +1,4 @@
+#!/usr/bin/julia
 using LinearAlgebra
 using Plots
 using CSV
@@ -111,10 +112,15 @@ function get_V_sitp(r_b)
     return define_potential_interpolation(df)
 end
 
-function V_itp(pos::Vector{Float64}, V_sitp)::Float64 
-    """Get interpolated potential at arbitrary position in simulation volume"""
+function V_itp(pos; V_sitp=nothing)::Float64 
+    """Get interpolated potential at arbitrary position in simulation volume [eV]"""
     r = norm(pos[1:2]) 
     return V_sitp(pos[3], r)
+end
+
+function V_itp_on_axis(z, V_sitp)
+    """Get interpolated on-axis potential [eV]"""
+    return [V_itp([0.,0.,zi], V_sitp=V_sitp) for zi in z]
 end
 
 function get_azimuthal_angle(pos::SVector{3,Float64})

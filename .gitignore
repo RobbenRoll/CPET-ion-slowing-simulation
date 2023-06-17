@@ -4,4 +4,10 @@
 *.ipy*
 *.mem
 *.h5
+*.ps
+*.pslog
+*.pdf
+*.png
+20*
+cpet_extended_*
 OutputFiles
