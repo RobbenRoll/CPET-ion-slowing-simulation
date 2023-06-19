@@ -72,7 +72,7 @@ function plot_adiabatic_invariants(times, positions, velocities; m=m_u.val, B=1.
 end
 
 @kwdef struct RunInfo
-    fname::string
+    filepath::String
     datetime::String 
     t_end::Float64
     dt::Float64 
@@ -91,10 +91,12 @@ end
     q_b::Float64
     m_b::Float64
     r_b::Float64
+    neutral_masses::Vector{Float64}
     neutral_pressures_mbar::Vector{Float64}
     alphas::Vector{Float64}
     CX_fractions::Vector{Float64}
     T_n::Float64
+    coll_types::Vector{String}
     velocity_diffusion::Bool
     seed::Any
 end 
@@ -106,7 +108,7 @@ function get_run_info(fname; rel_path="/Tests/OutputFiles/")
     fid = h5open(path, "r")
     info = fid["RunInfo"]
     run_info = RunInfo(
-                        filepath = read(info["filepath"])
+                        filepath = read(info["filepath"]),
                         datetime = read(info["datetime"]), 
                         t_end = read(info["t_end"]),
                         dt = read(info["dt"]),
@@ -125,10 +127,12 @@ function get_run_info(fname; rel_path="/Tests/OutputFiles/")
                         q_b = read(info["q_b"]),
                         m_b = read(info["m_b"]),
                         r_b = read(info["r_b"]),
+                        neutral_masses = read(info["neutral_masses"]),
                         neutral_pressures_mbar = read(info["neutral_pressures_mbar"]),
                         alphas = read(info["alphas"]),
                         CX_fractions = read(info["CX_fractions"]),
                         T_n = read(info["T_n"]),
+                        coll_types = read(info["coll_types"]),
                         velocity_diffusion = read(info["velocity_diffusion"]),
                         seed = read(info["seed"]),
                       )
@@ -229,6 +233,23 @@ function nanmask(A, m)
     return exitp(energies, V_nest_eff)    
 end
 
+function print_collision_stats(fname; rel_path="/Tests/OutputFiles/")
+    run_info = get_run_info(fname; rel_path=rel_path)
+
+    path = string(@__DIR__) * rel_path * fname 
+    fid = h5open(path, "r")
+    orbs = fid["IonOrbits"] 
+    coll_counts = read(orbs["coll_counts"])
+    println("\n### Ion-neutral collision counts for all ions ###")
+    for target_id in range(1,length(run_info.neutral_masses))
+        println("\nNeutral target mass: ", run_info.neutral_masses[target_id]/m_u.val," u")
+        for type_id in range(1,length(run_info.coll_types))
+            coll_type = run_info.coll_types[type_id] 
+            println(coll_type, " collisions: ", sum(coll_counts[:,target_id,type_id]))
+        end 
+    end
+end
+
 function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_r=8e-04, ramp_correction=true, exp_data_fname=nothing)
     """Plot diagnostics for ion orbit data stored in HDF5 file"""
     run_info = get_run_info(fname; rel_path=rel_path)
@@ -239,6 +260,8 @@ function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_
     sample_times = read(orbs["sample_time_hists"])[1,:]
     position_hists = read(orbs["position_hists"])
     velocity_hists = read(orbs["velocity_hists"])
+    charge_hists = read(orbs["charge_hists"])
+    mass_hists = read(orbs["mass_hists"])
     N_ions = run_info.N_ions
     q = run_info.q
     m = run_info.m
@@ -287,7 +310,7 @@ function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_
     # Collect longitudinal energy data 
     E_par = []
     for i in range(1,N_ions)
-        E_par_i = [0.5*m*norm(@views velocity_hists[i,it,3])^2/q + @views V_itp(position_hists[i,it,:], V_sitp=V_sitp) for it in range(1,length(sample_times))]  
+        E_par_i = [0.5*mass_hists[i,it]*norm(@views velocity_hists[i,it,3])^2/charge_hists[i,it] + @views V_itp(position_hists[i,it,:], V_sitp=V_sitp) for it in range(1,length(sample_times))]  
         if ramp_correction # correct ion energies for endcap voltage ramp
             E_par_i = apply_ramp_correction(E_par_i, V_nest_eff, species=species)
         end
@@ -389,7 +412,7 @@ function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_
     f = plot(xlabel="Time (s)", ylabel="Total ion energy (eV/q)",  legend=false)
     E_tot = []
     for i in range(1,N_ions)
-        E_tot_i = [0.5*m*norm(@views velocity_hists[i,it,:])^2/q + @views V_itp(position_hists[i,it,:], V_sitp=V_sitp) for it in range(1,length(sample_times))]  
+        E_tot_i = [0.5*mass_hists[i,it]*norm(@views velocity_hists[i,it,:])^2/charge_hists[i,it] + @views V_itp(position_hists[i,it,:], V_sitp=V_sitp) for it in range(1,length(sample_times))]  
         if ramp_correction # correct ion energies for endcap voltage ramp
             E_tot_i = apply_ramp_correction(E_tot_i, V_nest_eff, species=species)
         end

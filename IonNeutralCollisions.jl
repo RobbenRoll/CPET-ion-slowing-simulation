@@ -88,11 +88,9 @@ function ion_neutral_collision(v_i::SVector{3,Float64}, q::Float64, m_i::Float64
     v_COM = (m_i*v_i .+ m_n*v_n)./(m_i + m_n) # velocity of COM in lab frame
     w_i = v_i - v_COM # ion velocity in COM frame
 
-    # Calculate maximal impact parameter
-
     ### Draw random impact parameter
-    b_crit = get_b_crit(v_i, q, m_i, m_n=m_n, alpha=alpha, T_n=T_n)
-    b_max = get_b_max(v_i, q, m_i, m_n=m_n, alpha=alpha, T_n=T_n)
+    b_crit = get_b_crit(v_i, q, m_i, m_n=m_n, alpha=alpha, T_n=T_n) # critical impact parameter for Langevin collision
+    b_max = get_b_max(v_i, q, m_i, m_n=m_n, alpha=alpha, T_n=T_n) # maximal relevant impact parameter
     b = rand_b(b_max, rng=rng)
 
     ### Select the collision type (elastic or Langevin)
@@ -101,19 +99,23 @@ function ion_neutral_collision(v_i::SVector{3,Float64}, q::Float64, m_i::Float64
         coll_type = "Langevin"
     else
         if rand(rng, Float64) <= CX_frac
-            coll_type = "CX" # TODO: IMPLEMENT CX collision
+            coll_type = "CX" 
         else
             coll_type = "glanzing"
         end
         θ = R4_scat_angle(b, v_i, q, m_i; m_n=m_n, alpha=alpha, T_n=T_n)
     end
+
     ### Determine COM ion velocity after collision
-    #θ =     # polar scattering angle in COM 
     ϕ = 2*π*rand(rng, Float64) # azimuthal scattering angle in COM frame
     w_i_final = norm(w_i)*[cos(ϕ)*sin(θ), sin(ϕ)*sin(θ), cos(θ)] # ion velocity in COM frame after collision 
     if coll_type == "CX" 
-        # Handle CX (set final ion to final atom velocity) # TODO: VERIFY
-        w_i_final *= -1 # exchange velocity of ion for atom in COM frame
+        # Handle CX (set final ion to final atom velocity and exchange masses) # TODO: VERIFY
+        if q > 1 
+            throw("CX collisions for multiply charged ions not supported.")
+        end
+        w_i_final *= -1*m_i/m_n # exchange velocity of ion for atom in COM frame
+        m_i = m_n 
     end
 
     ### Transform final ion velocity from COM back into the lab frame (see ShortMSc2018 for equations)
@@ -121,7 +123,7 @@ function ion_neutral_collision(v_i::SVector{3,Float64}, q::Float64, m_i::Float64
     β = atan(w_i[2]/w_i[1]) 
     v_i = SVector{3}(rotation(α, β)*w_i_final + v_COM) # rotate final ion velocity vector and boost into lab frame
 
-    return v_i, coll_type
+    return v_i, q, m_i, coll_type
 end
 
 function get_mean_free_path(v_i::SVector{3,Float64}, q::Float64, m_i::Float64; m_n=2*m_u.val, alpha=alpha_H2, p_n_mbar=1e-08, T_n=300.)

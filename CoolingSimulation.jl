@@ -15,14 +15,20 @@ include("IonNeutralCollisions.jl")
 function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B, 
                                        n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
                                        neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
-                                       CX_fractions=[], T_n=300.,
-                                       dt=1e-10, sample_every=1, velocity_diffusion=true, rng=default_rng())
+                                       CX_fractions=[], T_n=300., dt=1e-09, sample_every=1, 
+                                       velocity_diffusion=true, rng=default_rng())
     """Trace orbit of a single ion"""
+    if !(length(neutral_masses) == length(neutral_pressures_mbar) == length(alphas) == length(CX_fractions))
+        throw("Lengths of `neutral_masses`, `neutral_pressures_mbar`, `alphas` and `CX_fractions` do not match.")
+    end
     t_end = times[end]
     N_samples = Int64(round(t_end/(sample_every*dt))) + 1
     sample_times = zeros(Float64, N_samples) #Vector{Float64}([])
+    mass_hist = zeros(Float64, N_samples)
+    charge_hist = zeros(Float64, N_samples)
     positions = zeros(Float64, N_samples, 3) #Vector{Vector{Float64}}([])
     velocities = zeros(Float64, N_samples, 3) #Vector{Vector{Float64}}([])
+    coll_counts =  [Dict{String, Integer}("glanzing" => 0, "Langevin" => 0, "CX" => 0) for _ in neutral_masses]
     E = MVector{3,Float64}(undef) # SizedArray{Tuple{3}}([0.,0.,0.])
     r = @SVector [r[1], r[2], r[3]]
     u_last_half = @SVector [u_last_half[1], u_last_half[2], u_last_half[3]]
@@ -34,9 +40,6 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
     MFPs = Vector{Float64}(similar(neutral_masses))
     v_effs = Vector{Float64}(similar(neutral_masses))
     coll_probs = Vector{Float64}(similar(neutral_masses))
-    coll_counts = zeros(length(neutral_masses))
-    #coll_type = @SVector
-    #TODO: Add collision type counter
 
     # Load potential data
     V_sitp = get_V_sitp(r_b)
@@ -60,6 +63,8 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
         if mod(t, sample_every*dt - dt^2)  < dt # subtract dt^2 to prevent rounding issues
             i = Int64(round(t/(sample_every*dt))) + 1
             sample_times[i] = t 
+            charge_hist[i] = q
+            mass_hist[i] = m
             positions[i,:] = r 
             velocities[i,:] = (u_last_half + u_next_half)/2 
         end
@@ -70,11 +75,11 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
             update_v_effs!(v_effs, u_next_half, neutral_masses, T_n)
             update_coll_probs!(coll_probs, MFPs, v_effs, dt) 
             if rand(rng, Float64) <= sum(coll_probs) 
-                i_coll = sample(rng, 1:length(neutral_masses), ProbabilityWeights(coll_probs/sum(coll_probs))) # randomly select neutral collision partner
-                u_next_half, coll_type = ion_neutral_collision(u_next_half, q, m, m_n=neutral_masses[i_coll], 
-                                                               CX_frac=CX_fractions[i_coll],
-                                                               alpha=alphas[i_coll], T_n=T_n, rng=rng)
-                coll_counts[i_coll] += 1
+                i_target = sample(rng, 1:length(neutral_masses), ProbabilityWeights(coll_probs/sum(coll_probs))) # randomly select neutral collision partner
+                u_next_half, q, m, coll_type = ion_neutral_collision(u_next_half, q, m, m_n=neutral_masses[i_target], 
+                                                                     CX_frac=CX_fractions[i_target],
+                                                                     alpha=alphas[i_target], T_n=T_n, rng=rng)
+                coll_counts[i_target][coll_type] += 1
             end
         end
 
@@ -82,7 +87,7 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
         r, u_last_half = r_next, u_next_half 
     end 
 
-    return sample_times, positions, velocities
+    return sample_times, positions, velocities, charge_hist, mass_hist, coll_counts
 end
 
 
@@ -220,12 +225,12 @@ using SharedArrays
 using HDF5
 using Dates
 using ProgressBars
-function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; 
-                              μ_z0=-0.125, σ_z0=0.005, σ_xy0=0.001, q=e.val, m=23*m_u.val, N_ions=100, B=[0.,0.,7.], 
+function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ_z0=0.005, σ_xy0=0.001, 
+                              q=e.val, m=23*m_u.val, N_ions=100, B=[0.,0.,7.], 
                               n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
                               neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
-                              CX_fractions=[], T_n=300.,
-                              t_end=3.7, dt=1e-08, sample_every=100, velocity_diffusion=true, seed=nothing, fname="ion_orbits")
+                              CX_fractions=[], T_n=300.,t_end=3.7, dt=1e-08, sample_every=100, 
+                              velocity_diffusion=true, seed=nothing, fname="ion_orbits")
     now = Dates.now()
     datetime = Dates.format(now, "yyyy-mm-dd_HHMM") # save start time for run info 
     println("\n##### STARTING ION ORBIT TRACING #####\n")
@@ -267,21 +272,33 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp;
     N_samples = Int64(round(t_end/(sample_every*dt))) + 1
     rngs = MersenneTwister.(rand(rng, (0:100000000000000000), N_ions))
     processed = SharedArray{Float64}(N_ions)
-    all_sample_times = SharedArray{Float64}(N_ions,N_samples)
-    all_positions = SharedArray{Float64}(N_ions,N_samples,3) 
-    all_velocities = SharedArray{Float64}(N_ions,N_samples,3) 
+    sample_time_hists = SharedArray{Float64}(N_ions,N_samples)
+    position_hists = SharedArray{Float64}(N_ions,N_samples,3) 
+    velocity_hists = SharedArray{Float64}(N_ions,N_samples,3) 
+    charge_hists = SharedArray{Float64}(N_ions,N_samples) 
+    mass_hists = SharedArray{Float64}(N_ions,N_samples)
+    coll_type_ids = Dict("glanzing" => 1, "Langevin" => 2, "CX" => 3)
+    coll_counts = SharedArray{Int64}(N_ions,length(neutral_masses), length(coll_type_ids))
     @sync @distributed for i in range(1, N_ions)
         u_last_half = [vx0[i], vy0[i], v0_par[i]]
-        sample_times, positions, velocities = integrate_orbit_with_friction(times, pos0[i], u_last_half; q=q, m=m, B=B, 
+        sample_times, positions, velocities, charge_hist, mass_hist, coll_count_dicts = integrate_orbit_with_friction(
+                                                                            times, pos0[i], u_last_half; q=q, m=m, B=B, 
                                                                             n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, r_b=r_b, 
                                                                             neutral_masses=neutral_masses, 
                                                                             neutral_pressures_mbar=neutral_pressures_mbar, 
                                                                             alphas=alphas, CX_fractions=CX_fractions, T_n=T_n, 
                                                                             dt=dt, sample_every=sample_every, 
                                                                             velocity_diffusion=velocity_diffusion, rng=rngs[i])
-        all_sample_times[i,:] = sample_times 
-        all_positions[i,:,:] = positions 
-        all_velocities[i,:,:] = velocities
+        sample_time_hists[i,:] = sample_times 
+        position_hists[i,:,:] = positions 
+        velocity_hists[i,:,:] = velocities
+        charge_hists[i,:] = charge_hist
+        mass_hists[i,:] = mass_hist
+        for k in range(1,length(neutral_masses))
+            for (coll_type, count) in coll_count_dicts[k]
+                coll_counts[i,k,coll_type_ids[coll_type]] = count
+            end
+        end
         processed[i] = true
         println(string(Int64(sum(processed))) * "/" * string(N_ions) * " ion orbits traced.")
     end 
@@ -313,10 +330,12 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp;
         info["q_b"] = q_b
         info["m_b"] = m_b
         info["r_b"] = r_b
+        info["neutral_masses"] = neutral_masses
         info["neutral_pressures_mbar"] = neutral_pressures_mbar
         info["alphas"] = alphas
         info["CX_fractions"] = CX_fractions
         info["T_n"] = T_n
+        info["coll_types"] = [k for (k,_) in coll_type_ids]
         info["velocity_diffusion"] = velocity_diffusion
         if isnothing(seed) 
             info["seed"] = NaN
@@ -327,9 +346,12 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp;
         # Write ion orbit data 
         create_group(fid, "IonOrbits")
         orbs = fid["IonOrbits"]
-        orbs["sample_time_hists"] = all_sample_times
-        orbs["position_hists"] = all_positions 
-        orbs["velocity_hists"] = all_velocities
+        orbs["sample_time_hists"] = sample_time_hists
+        orbs["position_hists"] = position_hists 
+        orbs["velocity_hists"] = velocity_hists
+        orbs["charge_hists"] = charge_hists
+        orbs["mass_hists"] = mass_hists
+        orbs["coll_counts"] = coll_counts
         close(fid)
         println("Data written to " * fname * ".h5")
     end
