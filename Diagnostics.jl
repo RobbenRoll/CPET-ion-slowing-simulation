@@ -7,6 +7,7 @@ using LinearAlgebra
 using NaNStatistics
 using PyCall
 import Base.@kwdef
+import PhysicalConstants.CODATA2018: m_u
 default(fmt = :png) # prevent slowdown from dense figures
 include("ParticlePushers.jl")
 
@@ -83,8 +84,9 @@ end
     σ_E0_perp::Float64
     μ_z0::Float64
     σ_xy0::Float64
-    q::Float64
-    m::Float64
+    q0::Float64
+    m0_u::Vector{Float64}
+    m0_probs::Vector{Float64}
     B::Vector{Float64}
     n_b::Float64
     T_b::Float64
@@ -119,8 +121,9 @@ function get_run_info(fname; rel_path="/Tests/OutputFiles/")
                         σ_E0_perp = read(info["σ_E0_perp"]),
                         μ_z0 = read(info["μ_z0"]),
                         σ_xy0 = read(info["σ_xy0"]),
-                        q = read(info["q"]),
-                        m = read(info["m"]),
+                        q0 = read(info["q0"]),
+                        m0_u = read(info["m0_u"]),
+                        m0_probs = read(info["m0_probs"]),
                         B = read(info["B"]),
                         n_b = read(info["n_b"]),
                         T_b = read(info["T_b"]),
@@ -170,6 +173,22 @@ function get_exp_data(exp_data_fname, dir_path="../../CPET DAQ data/")
     exp_data = np.load(dir_path * exp_data_fname, allow_pickle=true)[1]
     return exp_data
 end 
+
+function get_default_exp_data_fname(m_u; atol=0.49, verbose=true)
+    """Get filename for default experimental data from ion mass"""
+    if isapprox(m_u, 23, atol=atol)
+        exp_data_fname = "RFA_results_run04343_Na23.npy"
+    elseif isapprox(m_u, 39.1, atol=atol)
+        exp_data_fname = "RFA_results_run04354_K39.npy"
+    elseif isapprox(m_u, 85.3, atol=atol)
+        exp_data_fname = "RFA_results_run04355_Rb85.npy"
+    end
+    if verbose 
+        println("Fetching exp. data from " * exp_data_fname)
+    end
+    
+    return exp_data_fname
+end
 
 function nanmask(A, m)
     B = copy(A)
@@ -250,7 +269,8 @@ function print_collision_stats(fname; rel_path="/Tests/OutputFiles/")
     end
 end
 
-function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_r=8e-04, ramp_correction=true, exp_data_fname=nothing, n_smooth_E=1)
+function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_r=8e-04, 
+                          ramp_correction=true, exp_data_fname="default", n_smooth_E=1)
     """Plot diagnostics for ion orbit data stored in HDF5 file"""
     run_info = get_run_info(fname; rel_path=rel_path)
 
@@ -269,15 +289,15 @@ function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_
     charge_hists = read(orbs["charge_hists"])
     mass_hists = read(orbs["mass_hists"])
     N_ions = run_info.N_ions
-    q = run_info.q
-    m = run_info.m
+    q = run_info.q0
+    mean_m0_u = sum(run_info.m0_u .* run_info.m0_probs)/sum(run_info.m0_probs)
 
     # Determine ion species to use for fetching ramp correction data
-    if isapprox(m, 23*m_u.val, atol=1e-05*m_u.val)
+    if isapprox(mean_m0_u, 23, atol=0.49)
         species = "23Na"
-    elseif isapprox(m, 39*m_u.val, atol=1e-05*m_u.val)
+    elseif isapprox(mean_m0_u, 39.1, atol=0.49)
         species = "39K"
-    elseif isapprox(m, 85*m_u.val, atol=1e-05*m_u.val)
+    elseif isapprox(mean_m0_u, 85.3, atol=0.49)
         species = "85Rb"
     else 
         species = ""
@@ -285,6 +305,9 @@ function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_
     V_sitp = get_V_sitp(run_info.r_b) # load potential map
 
     # Fetch and prepare experimental data from .npy file
+    if exp_data_fname == "default" 
+        exp_data_fname = get_default_exp_data_fname(mean_m0_u, atol=0.49, verbose=true)
+    end
     if !isnothing(exp_data_fname)
         exp_data = get_exp_data(exp_data_fname)
         times_exp = get(exp_data,"Interaction times")/1000 # [s]

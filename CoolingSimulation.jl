@@ -226,7 +226,7 @@ using HDF5
 using Dates
 using ProgressBars
 function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ_z0=0.005, σ_xy0=0.001, 
-                              q=e.val, m=23*m_u.val, N_ions=100, B=[0.,0.,7.], 
+                              q0=e.val, m0_u=[23], m0_probs=[1.], N_ions=100, B=[0.,0.,7.], 
                               n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
                               neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
                               CX_fractions=[], T_n=300.,t_end=3.7, dt=1e-08, sample_every=100, 
@@ -258,14 +258,15 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
     # ϕ0 = rand(rng, N_ions)*pi
     # x0 = [ r0[pid]*cos(ϕ0[pid]) for pid in range(1,N_ions)]
     # y0 = [ r0[pid]*sin(ϕ0[pid]) for pid in range(1,N_ions)]
+    m0 = sample(rng, m0_u, ProbabilityWeights(Vector(m0_probs)), N_ions)*m_u.val
     z0 = rand(rng, Normal(μ_z0, σ_z0), N_ions) # TODO: Set μ_pos0 to capture well centre
     pos0 = [[x0[pid], y0[pid], z0[pid]] for pid in range(1,N_ions)]
-    E0_par = [rand(rng, truncated(Normal(μ_E0_par, σ_E0_par); lower=V_itp(pos0[pid], V_sitp=V_sitp))) for pid in range(1,N_ions)] #E0_par = rand(Normal(μ_E0_par, σ_E0_par))
-    v0_par = vel_from_E_per_q.(E0_par .- V_itp.(pos0, V_sitp=V_sitp), q, m)
-    E0_perp = rand(rng, truncated(Normal(0., σ_E0_perp); lower=0.), N_ions) # TODO: check distributions
+    E0_par = [rand(rng, truncated(Normal(μ_E0_par, σ_E0_par); lower=V_itp(pos0[pid], V_sitp=V_sitp))) for pid in range(1,N_ions)] 
+    v0_par = vel_from_E_per_q.(E0_par .- V_itp.(pos0, V_sitp=V_sitp), q0, m0)
+    E0_perp = rand(rng, truncated(Normal(0., σ_E0_perp); lower=0.), N_ions) 
     ζ0 = rand(rng, N_ions)*2*pi
-    vx0 = vel_from_E_per_q.(E0_perp, q, m).*cos.(ζ0)
-    vy0 = vel_from_E_per_q.(E0_perp, q, m).*sin.(ζ0)
+    vx0 = vel_from_E_per_q.(E0_perp, q0, m0).*cos.(ζ0)
+    vy0 = vel_from_E_per_q.(E0_perp, q0, m0).*sin.(ζ0) 
 
     ### Loop over ions
     times = range(0.0, step=dt, stop=t_end)
@@ -282,7 +283,7 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
     @sync @distributed for i in range(1, N_ions)
         u_last_half = [vx0[i], vy0[i], v0_par[i]]
         sample_times, positions, velocities, charge_hist, mass_hist, coll_count_dicts = integrate_orbit_with_friction(
-                                                                            times, pos0[i], u_last_half; q=q, m=m, B=B, 
+                                                                            times, pos0[i], u_last_half; q=q0, m=m0[i], B=B, 
                                                                             n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, r_b=r_b, 
                                                                             neutral_masses=neutral_masses, 
                                                                             neutral_pressures_mbar=neutral_pressures_mbar, 
@@ -322,8 +323,9 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
         info["σ_E0_perp"] = σ_E0_perp
         info["μ_z0"] = μ_z0
         info["σ_xy0"] = σ_xy0
-        info["q"] = q
-        info["m"] = m
+        info["q0"] = q0
+        info["m0_u"] = m0_u
+        info["m0_probs"] = m0_probs
         info["B"] = B
         info["n_b"] = n_b
         info["T_b"] = T_b
@@ -355,4 +357,6 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
         close(fid)
         println("Data written to " * fname * ".h5")
     end
+
+    return sample_time_hists, position_hists, velocity_hists, charge_hists, mass_hists, coll_counts
 end
