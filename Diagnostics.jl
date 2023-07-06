@@ -177,11 +177,11 @@ end
 function get_default_exp_data_fname(m_u; atol=0.49, verbose=true)
     """Get filename for default experimental data from ion mass"""
     if isapprox(m_u, 23, atol=atol)
-        exp_data_fname = "RFA_results_run04343_Na23.npy"
+        exp_data_fname = "RFA_results_run04343_Na23_final.npy"
     elseif isapprox(m_u, 39.1, atol=atol)
-        exp_data_fname = "RFA_results_run04354_K39.npy"
+        exp_data_fname = "RFA_results_run04354_K39_final.npy"
     elseif isapprox(m_u, 85.3, atol=atol)
-        exp_data_fname = "RFA_results_run04355_Rb85.npy"
+        exp_data_fname = "RFA_results_run04355_Rb85_final.npy"
     end
     if verbose 
         println("Fetching exp. data from " * exp_data_fname)
@@ -198,7 +198,7 @@ function nanmask(A, m)
 
  function apply_ramp_correction(energies, V_nest_eff; species="23Na")
     """Correct ion energies for adiabatic cooling correction"""
-    path = "../VoltageRampCorrection/"
+    path = string(@__DIR__) * "/VoltageRampCorrection/"
     corr_energies = []
     initial_energies = []
     eff_nest_depths = Vector(28:2:40)
