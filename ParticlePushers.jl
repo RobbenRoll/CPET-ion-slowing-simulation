@@ -303,7 +303,6 @@ function get_ν_E(v; n_b=1e11*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, 
     
     See Kunz2021 Lecture Notes on Irreversible Processes in Plasmas
     """
-    v_b = sqrt(2*k_B.val*T_b/m_b)
     ν_slowing, ν_par_diffusion, ν_perp_diffusion = get_all_νs(v, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, q=q, m=m)
     return 2*ν_slowing - ν_par_diffusion - ν_perp_diffusion
 end
