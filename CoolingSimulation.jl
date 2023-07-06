@@ -7,7 +7,7 @@ import Random: default_rng
 import Distributions: Normal, truncated
 import PhysicalConstants.CODATA2018: c_0, ε_0, m_e, e, m_u, k_B, h, μ_B
 import SpecialFunctions: erf
-import StatsBase: sample, ProbabilityWeights
+using StatsBase
 include("ParticlePushers.jl")
 include("IonNeutralCollisions.jl")
 
@@ -75,7 +75,7 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
             update_v_effs!(v_effs, u_next_half, neutral_masses, T_n)
             update_coll_probs!(coll_probs, MFPs, v_effs, dt) 
             if rand(rng, Float64) <= sum(coll_probs) 
-                i_target = sample(rng, 1:length(neutral_masses), ProbabilityWeights(coll_probs/sum(coll_probs))) # randomly select neutral collision partner
+                i_target = StatsBase.sample(rng, 1:length(neutral_masses), StatsBase.ProbabilityWeights(coll_probs/sum(coll_probs))) # randomly select neutral collision partner
                 u_next_half, q, m, coll_type = ion_neutral_collision(u_next_half, q, m, m_n=neutral_masses[i_target], 
                                                                      CX_frac=CX_fractions[i_target],
                                                                      alpha=alphas[i_target], T_n=T_n, rng=rng)
@@ -258,7 +258,7 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
     # ϕ0 = rand(rng, N_ions)*pi
     # x0 = [ r0[pid]*cos(ϕ0[pid]) for pid in range(1,N_ions)]
     # y0 = [ r0[pid]*sin(ϕ0[pid]) for pid in range(1,N_ions)]
-    m0 = sample(rng, m0_u, ProbabilityWeights(Vector(m0_probs)), N_ions)*m_u.val
+    m0 = StatsBase.sample(rng, m0_u, StatsBase.ProbabilityWeights(Vector(m0_probs)), N_ions)*m_u.val
     z0 = rand(rng, Normal(μ_z0, σ_z0), N_ions) # TODO: Set μ_pos0 to capture well centre
     pos0 = [[x0[pid], y0[pid], z0[pid]] for pid in range(1,N_ions)]
     E0_par = [rand(rng, truncated(Normal(μ_E0_par, σ_E0_par); lower=V_itp(pos0[pid], V_sitp=V_sitp))) for pid in range(1,N_ions)] 
