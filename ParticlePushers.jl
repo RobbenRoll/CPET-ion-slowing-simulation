@@ -22,7 +22,7 @@ function Boris_push(r, u_last_half, E, B, dt; q=e.val, m=m_u.val)
     For a Python implementation see https://stanczakdominik.github.io/posts/on-the-recent-on-the-boris-solver-in-particle-in-cell-simulations-paper/
     """
     eps_dt = 0.5*q/m*E*dt 
-    u_m = u_last_half +  eps_dt # Eqn. 3
+    u_m = u_last_half + eps_dt # Eqn. 3
     
     norm_B = norm(B)
     theta = q/m*dt/gamma_from_u(u_m)*norm_B # Eqn. 6
@@ -116,6 +116,37 @@ function V_itp_on_axis(z, V_sitp)
     return [V_itp([0.,0.,zi], V_sitp=V_sitp) for zi in z]
 end
 
+##### Define electron density map 
+function load_electron_density_map(fname; path="./")
+    """Load 2D electron density map from CSV file"""
+    csv_file = CSV.File(path * fname)
+    return DataFrame(csv_file)
+end 
+
+function get_n_e_sitp(r_b)
+    if r_b == 0.0 
+        return nothing 
+    end 
+    path = string(@__DIR__)*"/PotentialMaps/Runs with 4.2E07 electrons, 100um r grid/Plasma radius "*string(r_b*1e03)*"mm/"
+    fname = "electron_density_"*string(r_b*1e03)*"mm_plasma_radius.txt" 
+    df = load_PIC_potentials(fname, path=path)
+    return define_potential_interpolation(df)
+end
+
+function n_e_itp(pos; n_e_sitp=nothing)::Float64 
+    """Get interpolated potential at arbitrary position in simulation volume [1/m^3]"""
+    if n_e_sitp==nothing
+        return 0.0 
+    end 
+    r = norm(pos[1:2]) 
+    return n_e_sitp(pos[3], r)
+end
+
+function update_n_e!(n_e, pos, n_e_sitp)::Float64
+    """Update interpolated electron number density [1/m^3]"""
+    n_e = n_e_itp(pos, n_e_sitp=n_e_sitp)
+end
+
 function get_azimuthal_angle(pos::SVector{3,Float64})
     """Get azimuthal angle of position vector in cylindrical coordinate system"""
     x, y, _ = pos
@@ -174,7 +205,7 @@ function update_E_fixed!(E, pos)
 end 
 
 function update_E!(E, pos, V_sitp)
-    """Get interpolated electric field vector [V/m]"""
+    """Update interpolated electric field vector [V/m]"""
     r = radial_offset(pos)
     if r != 0.0 
         phi = get_azimuthal_angle(pos)
@@ -184,7 +215,6 @@ function update_E!(E, pos, V_sitp)
     dVdz::Float64, dVdr::Float64 = gradient(V_sitp, pos[3], r)::SVector{2,Float64}  
     E .= -1.0.*[dVdr*cos(phi), dVdr*sin(phi), dVdz]
 end 
-
 
 ##### Boris particle pusher with damping
 function Boris_push_with_damping(r, u_last_half, E, B, dt; q=e.val, m=m_u.val, γ=1e05, 

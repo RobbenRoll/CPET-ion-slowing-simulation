@@ -12,17 +12,17 @@ include("ParticlePushers.jl")
 include("IonNeutralCollisions.jl")
 
 ##### Define Orbit integration function
+"""Trace orbit of a single ion"""
 function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B, 
                                        n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
                                        neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
                                        CX_fractions=[], T_n=300., dt=1e-09, sample_every=1, 
                                        velocity_diffusion=true, rng=default_rng())
-    """Trace orbit of a single ion"""
     if !(length(neutral_masses) == length(neutral_pressures_mbar) == length(alphas) == length(CX_fractions))
         throw("Lengths of `neutral_masses`, `neutral_pressures_mbar`, `alphas` and `CX_fractions` do not match.")
     end
     t_end = times[end]
-    N_samples = Int64(round(t_end/(sample_every*dt))) + 1
+    N_samples = Int64(floor(t_end/(sample_every*dt))) + 1
     sample_times = zeros(Float64, N_samples) #Vector{Float64}([])
     mass_hist = zeros(Float64, N_samples)
     charge_hist = zeros(Float64, N_samples)
@@ -41,16 +41,18 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
     v_effs = Vector{Float64}(similar(neutral_masses))
     coll_probs = Vector{Float64}(similar(neutral_masses))
 
-    # Load potential data
+    # Load potential & electron density data
     V_sitp = get_V_sitp(r_b)
+    n_e_sitp = get_n_e_sitp(r_b)
 
-    function inside_plasma(r, n_b) # TODO: derive plasma bounds from Warp PIC data 
-        return Bool(-0.03 < r[3] < 0.05 && n_b > 0.)
+    function inside_plasma(r, n_b; n_b_min=1e06) # TODO: Remove n_b as function input above?
+        return Bool(-0.03 < r[3] < 0.05 && n_b > n_b_min)
     end 
 
     for t in times 
         # Get E-field and step
         update_E!(E, r, V_sitp) #update_E!(E, r) # E = E_itp(r)
+        update_n_e!(n_b, r, n_e_sitp) 
         if inside_plasma(r, n_b) 
             r_next, u_next_half = Boris_push_with_friction(r, u_last_half, E, B, dt, q=q, m=m, dW, norm_dist,
                                                            n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, 
@@ -61,7 +63,7 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
 
         # Sample time-centred particle data
         if mod(t, sample_every*dt - dt^2)  < dt # subtract dt^2 to prevent rounding issues
-            i = Int64(round(t/(sample_every*dt))) + 1
+            i = Int64(floor(t/(sample_every*dt))) + 1
             sample_times[i] = t 
             charge_hist[i] = q
             mass_hist[i] = m
@@ -219,12 +221,25 @@ function vel_from_E_per_q(E_kin, q, m)
 end 
 
 
+import NaNStatistics: nanmean
+include("Diagnostics.jl")
+"""Calculate mean electron density inside the plasma"""
+function get_mean_n_e(r_b; n_e_min=1e06)
+    if r_b == 0.0 
+        mean_n_e = 0.0
+    else 
+        mean_n_e = nanmean(nanmask(get_n_e_sitp(r_b), (get_n_e_sitp(r_b) .< n_e_min) ))
+    end
+    return mean_n_e
+end 
+
 #using Base.Threads
 using Distributed
 using SharedArrays
 using HDF5
 using Dates
 using ProgressBars
+"""Serial or parallelized tracing of multiple ion orbits in CPET trap potential"""
 function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ_z0=0.005, σ_xy0=0.001, 
                               q0=e.val, m0_u=[23], m0_probs=[1.], N_ions=100, B=[0.,0.,7.], 
                               n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
@@ -270,7 +285,7 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
 
     ### Loop over ions
     times = range(0.0, step=dt, stop=t_end)
-    N_samples = Int64(round(t_end/(sample_every*dt))) + 1
+    N_samples = Int64(floor(t_end/(sample_every*dt))) + 1
     rngs = MersenneTwister.(rand(rng, (0:100000000000000000), N_ions))
     processed = SharedArray{Float64}(N_ions)
     sample_time_hists = SharedArray{Float64}(N_ions,N_samples)
@@ -327,7 +342,7 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
         info["m0_u"] = m0_u
         info["m0_probs"] = m0_probs
         info["B"] = B
-        info["n_b"] = n_b
+        info["n_b"] = get_mean_n_e(r_b)
         info["T_b"] = T_b
         info["q_b"] = q_b
         info["m_b"] = m_b
