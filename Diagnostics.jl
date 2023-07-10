@@ -167,10 +167,10 @@ function get_ion_orbits(fname; rel_path="/Tests/OutputFiles/")
     return sample_times, position_hists, velocity_hists
 end
 
-function get_exp_data(exp_data_fname, dir_path="../../CPET DAQ data/")
+function get_exp_data(exp_data_fname, rel_path="/ExpDatasets/")
     """Load experimental ion energy data from .npy file"""
     np = pyimport("numpy")
-    exp_data = np.load(dir_path * exp_data_fname, allow_pickle=true)[1]
+    exp_data = np.load(string(@__DIR__) * rel_path * exp_data_fname, allow_pickle=true)[1]
     return exp_data
 end 
 
