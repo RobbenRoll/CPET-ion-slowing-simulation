@@ -44,7 +44,7 @@ T_n = 300.
 
 # Define run parameters
 n_procs = 9
-t_end = 3700e-03
+t_end = 37.00e-03
 dt = 1e-08
 sample_every = 5000
 seed = 85383
@@ -54,8 +54,7 @@ datetime = Dates.format(now, "yyyy-mm-dd_HHMM_")
 output_path = "Tests/OutputFiles/" * datetime * "test_run_" * species * "_ions_plasma_off_test_n_e_map"
 
 ##### Run test simulation
-addprocs(n_procs)
-@everywhere include("../CoolingSimulation.jl")
+include("../CoolingSimulation.jl")
 
 println("Starting compilation run")
 #using ProfileView
@@ -64,14 +63,14 @@ println("Starting compilation run")
                            μ_z0=μ_z0, σ_z0=σ_z0, σ_xy0=σ_xy0,  q0=q0, m0_u=m0_u, m0_probs=m0_probs, N_ions=N_ions, 
                            B=B, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, r_b=r_b,
                            neutral_masses=neutral_masses, neutral_pressures_mbar=neutral_pressures_mbar, 
-                           alphas=alphas, CX_fractions=CX_fractions, T_n=T_n, 
-                           t_end=3*dt, dt=dt, sample_every=1, 
+                           alphas=alphas, CX_fractions=CX_fractions, T_n=T_n, seed=seed,
+                           t_end=3*dt, dt=dt, sample_every=1, n_procs=n_procs,
                            velocity_diffusion=velocity_diffusion);
 println("Starting simulation run")
 @time integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; 
                            μ_z0=μ_z0, σ_z0=σ_z0, σ_xy0=σ_xy0,  q0=q0, m0_u=m0_u, m0_probs=m0_probs, N_ions=N_ions, 
                            B=B, n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, r_b=r_b, 
                            neutral_masses=neutral_masses, neutral_pressures_mbar=neutral_pressures_mbar, 
-                           alphas=alphas, CX_fractions=CX_fractions, T_n=T_n, 
-                           t_end=t_end, dt=dt, sample_every=sample_every, seed=seed,
+                           alphas=alphas, CX_fractions=CX_fractions, T_n=T_n, seed=seed,
+                           t_end=t_end, dt=dt, sample_every=sample_every, n_procs=n_procs, 
                            velocity_diffusion=velocity_diffusion, fname=output_path);

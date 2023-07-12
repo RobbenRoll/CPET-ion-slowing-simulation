@@ -245,7 +245,9 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
                               n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
                               neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
                               CX_fractions=[], T_n=300.,t_end=3.7, dt=1e-08, sample_every=100, 
-                              velocity_diffusion=true, seed=nothing, fname="ion_orbits")
+                              velocity_diffusion=true, seed=nothing, fname="ion_orbits", n_procs=1)
+    addprocs(n_procs)
+    @everywhere include("../CoolingSimulation.jl")
     now = Dates.now()
     datetime = Dates.format(now, "yyyy-mm-dd_HHMM") # save start time for run info 
     println("\n##### STARTING ION ORBIT TRACING #####\n")
@@ -372,6 +374,6 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
         close(fid)
         println("Data written to " * fname * ".h5")
     end
-
+    rmprocs(workers()) # close workers to ensure clean up
     return sample_time_hists, position_hists, velocity_hists, charge_hists, mass_hists, coll_counts
 end

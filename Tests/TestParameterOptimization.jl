@@ -7,8 +7,6 @@ get_mean(A) = transpose(nanmean(A, dims=1))
 get_std(A) = transpose(nanstd(A, dims=1))
 get_err_of_mean(A) = get_std(A)./sqrt.(get_detectable_N_ions(A))
 get_RMSD(A) = transpose(sqrt.(nanmean(A.^2, dims=1)))
-get_E_par(ion_id, it) = 0.5*mass_hists[ion_id,it]*norm(@views velocity_hists[ion_id,it,3])^2/charge_hists[ion_id,it] + @views V_itp(position_hists[ion_id,it,:], V_sitp=V_sitp)
-get_E_tot(ion_id, it) = 0.5*mass_hists[ion_id,it]*norm(@views velocity_hists[ion_id,it,:])^2/charge_hists[ion_id,it]  + @views V_itp(position_hists[ion_id,it,:], V_sitp=V_sitp)
 
 """Nansum with penalty of +10 for each NaN in input vector"""
 function penalized_nansum(v) 
@@ -16,7 +14,6 @@ function penalized_nansum(v)
     for vi in v 
         if isnan(vi)
             s += 10.
-            println(s)
         end
     end
     return s 
@@ -26,6 +23,10 @@ function loss(sample_times, position_hists, velocity_hists,
               charge_hists, mass_hists; q_b=-e.val, r_b=0.0, T_b=300, max_detectable_r=8e-04, 
               n_smooth_E=51, ramp_correction=true, exp_data_fname=nothing)
     """Calculate loss function"""
+    get_E_par(ion_id, it) = 0.5*mass_hists[ion_id,it]*norm(@views velocity_hists[ion_id,it,3])^2/charge_hists[ion_id,it] + @views V_itp(position_hists[ion_id,it,:], V_sitp=V_sitp)
+    get_E_tot(ion_id, it) = 0.5*mass_hists[ion_id,it]*norm(@views velocity_hists[ion_id,it,:])^2/charge_hists[ion_id,it]  + @views V_itp(position_hists[ion_id,it,:], V_sitp=V_sitp)
+
+
     if mod(n_smooth_E,2) == 1
         n_smooth_half = Int64(floor(n_smooth_E/2)) # half-length of sliding smoothing window
     else
@@ -88,8 +89,6 @@ function loss(sample_times, position_hists, velocity_hists,
           
     detectable = ((E_par .> V_thres .|| z .> 0.0) .&& r .<= max_detectable_r) # bool-mask for detectable ions
     detectable_E_par = nanmask(E_par, @. !detectable)
-    println(E_par)
-    println(detectable_E_par)
     detectable_N_ions = get_detectable_N_ions(detectable_E_par) 
     detectable_mean_E_par = get_mean(detectable_E_par) 
     detectable_std_E_par = get_std(detectable_E_par) 
@@ -138,6 +137,7 @@ using Dates
 using Distributed
 import PhysicalConstants.CODATA2018: c_0, ε_0, m_e, e, m_u, k_B, h, μ_B
 include("../IonNeutralCollisions.jl")
+include("../CoolingSimulation.jl")
 
 # Define global parameters
 const B = [0.,0.,7.]
@@ -179,12 +179,8 @@ datetime = Dates.format(now, "yyyy-mm-dd_HHMM_")
 output_path = "Tests/OutputFiles/" * datetime * "test_run_plasma_off"
 
 ##### Run test simulation
-addprocs(n_procs)
-@everywhere include("../CoolingSimulation.jl")
-
-
 function eval_plasma_off_loss(x; q=e.val, m0_u=[23], m0_probs=[1.], q_b=-e.val, r_b=0.0, T_b=300, 
-                              exp_data_fname=nothing, max_detectable_r=8e-04, n_smooth_E=51)    
+                              exp_data_fname=nothing, max_detectable_r=8e-04, n_smooth_E=51, n_procs=n_procs)    
     neutral_pressures_mbar = x[1:4]
     σ_xy0 = x[5]
 
@@ -192,8 +188,8 @@ function eval_plasma_off_loss(x; q=e.val, m0_u=[23], m0_probs=[1.], q_b=-e.val, 
                                    μ_z0=μ_z0, σ_z0=σ_z0, σ_xy0=σ_xy0,  q0=q, m0_u=m0_u, m0_probs=m0_probs, N_ions=N_ions, B=B, 
                                    n_b=0.0, T_b=T_b, q_b=q_b, m_b=m_b, r_b=r_b,
                                    neutral_masses=neutral_masses, neutral_pressures_mbar=neutral_pressures_mbar, 
-                                   alphas=alphas, CX_fractions=CX_fractions, T_n=T_n, 
-                                   t_end=t_end, dt=dt, sample_every=sample_every, seed=seed,
+                                   alphas=alphas, CX_fractions=CX_fractions, T_n=T_n, seed=seed, 
+                                   t_end=t_end, dt=dt, sample_every=sample_every, n_procs=n_procs,
                                    velocity_diffusion=velocity_diffusion, fname=nothing)
       
     sample_times = orbits[1][1,:]
@@ -209,25 +205,27 @@ function eval_plasma_off_loss(x; q=e.val, m0_u=[23], m0_probs=[1.], q_b=-e.val, 
     return loss_val
 end
 
-function eval_combined_plasma_off_loss(x; q=q, q_b=q_b, T_b=T_b, max_detectable_r=8e-04, n_smooth_E=51)
+function eval_combined_plasma_off_loss(x; q=q, q_b=q_b, T_b=T_b, max_detectable_r=8e-04, n_smooth_E=51, n_procs=n_procs)
     r_b=0.0 # turn plasma off 
     loss_val_Na = eval_plasma_off_loss(x; q=q, m0_u=alkali_mass_data["Na"][1], m0_probs=alkali_mass_data["Na"][2],               
                                        exp_data_fname=exp_data_fname_Na, q_b=q_b, r_b=r_b, T_b=T_b,
-                                       max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E)
+                                       max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_procs=n_procs)
     
     loss_val_K = eval_plasma_off_loss(x; q=q, m0_u=alkali_mass_data["K"][1], m0_probs=alkali_mass_data["K"][2],               
                                       exp_data_fname=exp_data_fname_K, q_b=q_b, r_b=r_b, T_b=T_b,
-                                      max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E)
+                                      max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_procs=n_procs)
     
     loss_val_Rb = eval_plasma_off_loss(x; q=q, m0_u=alkali_mass_data["Rb"][1], m0_probs=alkali_mass_data["Rb"][2],               
                                        exp_data_fname=exp_data_fname_Rb, q_b=q_b, r_b=r_b, T_b=T_b,
-                                       max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E)
-
+                                       max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_procs=n_procs)
+    println()
+    println(x)
+    println([loss_val_Na, loss_val_K, loss_val_Rb])
     return sum([loss_val_Na, loss_val_K, loss_val_Rb])
 end
 
 x = push!(neutral_pressures_mbar, σ_xy0)
-@time eval_combined_plasma_off_loss(x; max_detectable_r=8e-04, n_smooth_E=51)
+@time eval_combined_plasma_off_loss(x; max_detectable_r=8e-04, n_smooth_E=51, n_procs=n_procs)
 
 
 # # ###### BlackBoxOptim 
@@ -293,49 +291,88 @@ x = push!(neutral_pressures_mbar, σ_xy0)
 ### Optimization example
 using Surrogates
 using Plots
+using HDF5
 
-n_samples = 40
+n_samples = 10
 lower_bounds = [1e-10, 1e-10, 1e-10, 5e-11, 0.0001]
-upper_bounds = [1e-08, 5e-09, 5e-09, 1e-09, 0.0005]
+upper_bounds = [1e-08, 5e-09, 5e-09, 1e-09, 0.0004]
 p = [1.5, 1.5, 1.5, 1.5, 1.5]
+sampling_func = SobolSample()
+acquisition_func = EI()
+maxiters = 30 
+num_new_samples = 30
+
+output_fname = "optimization_results"
+
 #xs = minimum(lower_bounds):5e-10:maximum(upper_bounds)
-x = Surrogates.sample(n_samples, lower_bounds, upper_bounds, SobolSample())
+x = Surrogates.sample(n_samples, lower_bounds, upper_bounds, sampling_func)
 println(x)
 y = eval_combined_plasma_off_loss.(x)
 println(y)
-surrogate = Kriging(x, y, lower_bounds, upper_bounds, p=p) #, theta=theta)
+
+# Build surrogate
+theta = 0.5 / max(1e-6 * abs(upper_bounds - lower_bounds), std(x))^p) # default from Kriging.jl
+surrogate = Kriging(x, y, lower_bounds, upper_bounds, p=p, , theta=theta, sampling_func)
 println(surrogate.x)
 println(surrogate.y)
+
+# Write initial sample data to attributes 
+fid = h5open(output_fname * ".h5", "w")
+create_group(fid, "optimizer_pars")
+optimizer_pars = fid["optimizer_pars"]
+optimizer_pars["lower_bounds"] = lower_bounds
+optimizer_pars["upper_bounds"] = upper_bounds
+optimizer_pars["p"] = p
+optimizer_pars["theta"] = theta
+optimizer_pars["sampling_func"] = string(sampling_func)
+optimizer_pars["acquisition_func"] = string(acquisition_func)
+optimizer_pars["maxiters"] = maxiters
+optimizer_pars["num_new_samples"] = num_new_samples
+create_group(fid, "initial_samples")
+init_samples = fid["initial_samples"]
+init_samples["inputs"] = surrogate.x
+init_samples["combined_loss_vals"] = surrogate.y
+close(fid)
+println("Initial sample data written to " * output_fname * ".h5")
 
 # Plot samples from surrogate GaussianProcess
 f = scatter(getindex.(surrogate.x,1), surrogate.y, label="Sampled points", 
             xlabel="H2 pressure (mbar)", ylabel="Loss")
 #plot!(xs[1], gp_surrogate.(xs), label="Surrogate function", ribbon=p->std_error_at_point(gp_surrogate, p), legend=:top)
-savefig(f, "SurrogateGC_samples_H2.png") 
+savefig(f, "Surrogate_samples_H2.png") 
 #display(f)
 
 f = scatter(getindex.(surrogate.x,2), surrogate.y, label="Sampled points", 
             xlabel="H2O pressure (mbar)", ylabel="Loss")
-savefig(f, "SurrogateGC_samples_H2O.png") 
+savefig(f, "Surrogate_samples_H2O.png") 
 #display(f)
 
 f = scatter(getindex.(surrogate.x,3), surrogate.y, label="Sampled points", 
             xlabel="N2 pressure (mbar)", ylabel="Loss")
-savefig(f, "SurrogateGC_samples_N2.png") 
+savefig(f, "Surrogate_samples_N2.png") 
 #display(f)
 
 f = scatter(getindex.(surrogate.x,4), surrogate.y, label="Sampled points", 
             xlabel="CO2 pressure (mbar)", ylabel="Loss")
-savefig(f, "SurrogateGC_samples_CO2.png") 
+savefig(f, "Surrogate_samples_CO2.png") 
 #display(f)
 
 f = scatter(getindex.(surrogate.x,5), surrogate.y, label="Sampled points", 
             xlabel="σ_xy0 (m)", ylabel="Loss")
-savefig(f, "SurrogateGC_samples_sigma_xy0.png") 
+savefig(f, "Surrogate_samples_sigma_xy0.png") 
 
-@time res = surrogate_optimize(eval_combined_plasma_off_loss, SRBF(), lower_bounds, upper_bounds, surrogate, SobolSample();         
-                               maxiters=100, num_new_samples=30)
+@time res = surrogate_optimize(eval_combined_plasma_off_loss, acquisition_func, lower_bounds, upper_bounds, surrogate, sampling_func;         
+                               maxiters=maxiters, num_new_samples=num_new_samples)
 
 println(res)
 println(x)
 println(y)
+
+# Write final sample data to attributes 
+fid = h5open(output_fname * ".h5", "r+")
+create_group(fid, "samples")
+samples = fid["samples"]
+samples["inputs"] = surrogate.x
+samples["combined_loss_vals"] = surrogate.y
+close(fid)
+println("Final sample data written to " * output_fname * ".h5")
