@@ -205,18 +205,18 @@ function eval_plasma_off_loss(x; q=e.val, m0_u=[23], m0_probs=[1.], q_b=-e.val, 
     return loss_val
 end
 
-function eval_combined_plasma_off_loss(x; q=q, q_b=q_b, T_b=T_b, max_detectable_r=8e-04, n_smooth_E=51, n_procs=n_procs)
+function eval_combined_plasma_off_loss(x; q=q, q_b=q_b, T_b=T_b, max_detectable_r=8e-04, n_smooth_E=51, seed=seed, n_procs=n_procs)
     r_b=0.0 # turn plasma off 
     loss_val_Na = eval_plasma_off_loss(x; q=q, m0_u=alkali_mass_data["Na"][1], m0_probs=alkali_mass_data["Na"][2],               
-                                       exp_data_fname=exp_data_fname_Na, q_b=q_b, r_b=r_b, T_b=T_b,
+                                       exp_data_fname=exp_data_fname_Na, q_b=q_b, r_b=r_b, T_b=T_b, seed=seed, 
                                        max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_procs=n_procs)
     
     loss_val_K = eval_plasma_off_loss(x; q=q, m0_u=alkali_mass_data["K"][1], m0_probs=alkali_mass_data["K"][2],               
-                                      exp_data_fname=exp_data_fname_K, q_b=q_b, r_b=r_b, T_b=T_b,
+                                      exp_data_fname=exp_data_fname_K, q_b=q_b, r_b=r_b, T_b=T_b, seed=seed, 
                                       max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_procs=n_procs)
     
     loss_val_Rb = eval_plasma_off_loss(x; q=q, m0_u=alkali_mass_data["Rb"][1], m0_probs=alkali_mass_data["Rb"][2],               
-                                       exp_data_fname=exp_data_fname_Rb, q_b=q_b, r_b=r_b, T_b=T_b,
+                                       exp_data_fname=exp_data_fname_Rb, q_b=q_b, r_b=r_b, T_b=T_b, seed=seed, 
                                        max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_procs=n_procs)
     println()
     println(x)
@@ -311,8 +311,8 @@ y = eval_combined_plasma_off_loss.(x)
 println(y)
 
 # Build surrogate
-theta = 0.5 / max(1e-6 * abs(upper_bounds - lower_bounds), std(x))^p) # default from Kriging.jl
-surrogate = Kriging(x, y, lower_bounds, upper_bounds, p=p, , theta=theta, sampling_func)
+theta = [0.5 / max(1e-6 * norm(upper_bounds .- lower_bounds), std(x_i[i] for x_i in x))^p[i] for i in 1:length(x[1])] # default from Kriging.jl
+surrogate = Kriging(x, y, lower_bounds, upper_bounds, p=p, theta=theta)
 println(surrogate.x)
 println(surrogate.y)
 
