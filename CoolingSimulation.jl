@@ -49,7 +49,7 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
         return Bool(-0.03 < r[3] < 0.05 && n_b > n_b_min)
     end 
 
-    for t in times 
+    for (it, t) in enumerate(times)
         # Get E-field and step
         update_E!(E, r, V_sitp) #update_E!(E, r) # E = E_itp(r)
         update_n_e!(n_b, r, n_e_sitp) 
@@ -62,8 +62,8 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
         end
 
         # Sample time-centred particle data
-        if mod(t, sample_every*dt - dt^2)  < dt # subtract dt^2 to prevent rounding issues
-            i = Int64(floor(t/(sample_every*dt))) + 1
+        if mod(it, sample_every) == 1
+            i = Int64((it-1)/sample_every) + 1
             sample_times[i] = t 
             charge_hist[i] = q
             mass_hist[i] = m
@@ -77,11 +77,11 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
             update_v_effs!(v_effs, u_next_half, neutral_masses, T_n)
             update_coll_probs!(coll_probs, MFPs, v_effs, dt) 
             if rand(rng, Float64) <= sum(coll_probs) 
-                i_target = StatsBase.sample(rng, 1:length(neutral_masses), StatsBase.ProbabilityWeights(coll_probs/sum(coll_probs))) # randomly select neutral collision partner
-                u_next_half, q, m, coll_type = ion_neutral_collision(u_next_half, q, m, m_n=neutral_masses[i_target], 
-                                                                     CX_frac=CX_fractions[i_target],
-                                                                     alpha=alphas[i_target], T_n=T_n, rng=rng)
-                coll_counts[i_target][coll_type] += 1
+                target_idx = StatsBase.sample(rng, 1:length(neutral_masses), StatsBase.ProbabilityWeights(coll_probs/sum(coll_probs))) # randomly select neutral collision partner
+                u_next_half, q, m, coll_type = ion_neutral_collision(u_next_half, q, m, m_n=neutral_masses[target_idx], 
+                                                                     CX_frac=CX_fractions[target_idx],
+                                                                     alpha=alphas[target_idx], T_n=T_n, rng=rng)
+                coll_counts[target_idx][coll_type] += 1
             end
         end
 
