@@ -14,7 +14,7 @@ include("IonNeutralCollisions.jl")
 ##### Define Orbit integration function
 """Trace orbit of a single ion"""
 function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B, 
-                                       n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
+                                       T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
                                        neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
                                        CX_fractions=[], T_n=300., dt=1e-09, sample_every=1, 
                                        velocity_diffusion=true, rng=default_rng())
@@ -29,6 +29,7 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
     positions = zeros(Float64, N_samples, 3) #Vector{Vector{Float64}}([])
     velocities = zeros(Float64, N_samples, 3) #Vector{Vector{Float64}}([])
     coll_counts =  [Dict{String, Integer}("glanzing" => 0, "Langevin" => 0, "CX" => 0) for _ in neutral_masses]
+    n_e = [0.]
     E = MVector{3,Float64}(undef) # SizedArray{Tuple{3}}([0.,0.,0.])
     r = @SVector [r[1], r[2], r[3]]
     u_last_half = @SVector [u_last_half[1], u_last_half[2], u_last_half[3]]
@@ -51,11 +52,11 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
 
     for (it, t) in enumerate(times)
         # Get E-field and step
-        update_E!(E, r, V_sitp) #update_E!(E, r) # E = E_itp(r)
-        update_n_e!(n_b, r, n_e_sitp) 
-        if inside_plasma(r, n_b) 
+        update_E!(E, r, V_sitp) 
+        update_n_e!(n_e, r, n_e_sitp) 
+        if inside_plasma(r, n_e[1])
             r_next, u_next_half = Boris_push_with_friction(r, u_last_half, E, B, dt, q=q, m=m, dW, norm_dist,
-                                                           n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, 
+                                                           n_b=n_e[1], T_b=T_b, q_b=q_b, m_b=m_b, 
                                                            velocity_diffusion=velocity_diffusion, rng=rng)
         else
             r_next, u_next_half = Boris_push(r, u_last_half, E, B, dt, q=q, m=m)
@@ -242,11 +243,13 @@ using ProgressBars
 """Serial or parallelized tracing of multiple ion orbits in CPET trap potential"""
 function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ_z0=0.005, σ_xy0=0.001, 
                               q0=e.val, m0_u=[23], m0_probs=[1.], N_ions=100, B=[0.,0.,7.], 
-                              n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
+                              T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
                               neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
                               CX_fractions=[], T_n=300.,t_end=3.7, dt=1e-08, sample_every=100, 
-                              velocity_diffusion=true, seed=nothing, fname="ion_orbits", n_procs=1)
-    addprocs(n_procs)
+                              velocity_diffusion=true, seed=nothing, fname="ion_orbits", n_workers=1)
+    if n_workers > 1
+        addprocs(n_workers)
+    end
     @everywhere include("../CoolingSimulation.jl")
     now = Dates.now()
     datetime = Dates.format(now, "yyyy-mm-dd_HHMM") # save start time for run info 
@@ -256,9 +259,8 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
     println("number of ions = ", N_ions)
     
     ### Load potential map
-    if n_b == 0 && r_b > 0
-        println("\nUsing vacuum potential (i.e. r_b=0) as n_b == 0.\n")
-        r_b = 0 # ensure vacuum potential is used for plasma-off runs
+    if r_b == 0
+        println("\nUsing vacuum potential (i.e. r_b=0) and setting n_b == 0. \n")
     end 
     V_sitp = get_V_sitp(r_b)
 
@@ -301,7 +303,7 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
         u_last_half = [vx0[i], vy0[i], v0_par[i]]
         sample_times, positions, velocities, charge_hist, mass_hist, coll_count_dicts = integrate_orbit_with_friction(
                                                                             times, pos0[i], u_last_half; q=q0, m=m0[i], B=B, 
-                                                                            n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, r_b=r_b, 
+                                                                            T_b=T_b, q_b=q_b, m_b=m_b, r_b=r_b, 
                                                                             neutral_masses=neutral_masses, 
                                                                             neutral_pressures_mbar=neutral_pressures_mbar, 
                                                                             alphas=alphas, CX_fractions=CX_fractions, T_n=T_n, 

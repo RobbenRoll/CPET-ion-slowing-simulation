@@ -135,21 +135,20 @@ end
 
 function n_e_itp(pos; n_e_sitp=nothing)::Float64 
     """Get interpolated potential at arbitrary position in simulation volume [1/m^3]"""
-    if n_e_sitp==nothing
+    if n_e_sitp == nothing
         return 0.0 
     end 
     r = norm(pos[1:2]) 
     return n_e_sitp(pos[3], r)
 end
 
-function update_n_e!(n_e, pos, n_e_sitp)::Float64
-    """Update interpolated electron number density [1/m^3]"""
-    n_e = n_e_itp(pos, n_e_sitp=n_e_sitp)
+function update_n_e!(n_e::Vector{Float64}, pos, n_e_sitp)
+    """Update interpolated plasma electron number density [1/m^3]"""
+    n_e[1] = n_e_itp(pos, n_e_sitp=n_e_sitp) 
 end
 
 function get_azimuthal_angle(pos::SVector{3,Float64})
     """Get azimuthal angle of position vector in cylindrical coordinate system"""
-    x, y, _ = pos
     if pos[1] > 0 
         phi = atan(pos[2]/pos[1])
     elseif pos[1] < 0 && pos[2] >= 0 
@@ -176,7 +175,7 @@ function E_itp(pos::SVector{3,Float64})
     return -1.0*[dVdr*cos(phi), dVdr*sin(phi), dVdz]
 end 
 
-function E_itp!(E, pos)
+function E_itp!(E, pos) #TODO: Remove if adaptice GC solver is updated or removed 
     """Get interpolated electric field vector [V/m]"""
     r = norm(pos[1:2])
     if r != 0.0 
@@ -185,7 +184,7 @@ function E_itp!(E, pos)
         phi = 0.0
     end
     gradV = update_gradV!(gradV, r, pos[3]) #dVdz::Float64, dVdr::Float64 = ∇V(r, pos[3])
-    E = -1.0*[gradV[2]*cos(phi), gradV[2]*sin(phi), gradV[1]]
+    E .= -1.0*[gradV[2]*cos(phi), gradV[2]*sin(phi), gradV[1]]
 end 
 
 function radial_offset(pos::SVector{3, Float64})::Float64
