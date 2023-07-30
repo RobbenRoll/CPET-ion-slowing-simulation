@@ -23,11 +23,11 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
     end
     t_end = times[end]
     N_samples = Int64(floor(round(t_end/(sample_every*dt), digits=6))) + 1
-    sample_times = zeros(Float64, N_samples) #Vector{Float64}([])
+    sample_times = zeros(Float64, N_samples) 
     mass_hist = zeros(Float64, N_samples)
     charge_hist = zeros(Float64, N_samples)
-    positions = zeros(Float64, N_samples, 3) #Vector{Vector{Float64}}([])
-    velocities = zeros(Float64, N_samples, 3) #Vector{Vector{Float64}}([])
+    positions = zeros(Float64, N_samples, 3) 
+    velocities = zeros(Float64, N_samples, 3) 
     coll_counts =  [Dict{String, Integer}("glanzing" => 0, "Langevin" => 0, "CX" => 0) for _ in neutral_masses]
     n_e = [0.]
     E = MVector{3,Float64}(undef) # SizedArray{Tuple{3}}([0.,0.,0.])
@@ -46,7 +46,7 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
     V_sitp = get_V_sitp(r_b)
     n_e_sitp = get_n_e_sitp(r_b)
 
-    function inside_plasma(r, n_b; n_b_min=1e06) # TODO: Remove n_b as function input above?
+    function inside_plasma(r, n_b; n_b_min=1e06) 
         return Bool(-0.03 < r[3] < 0.05 && n_b > n_b_min)
     end 
 
@@ -93,7 +93,6 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
     return sample_times, positions, velocities, charge_hist, mass_hist, coll_counts
 end
 
-
 ##### Define orbit integrator with adaptive full-orbit/guiding centre particle pusher 
 function get_gyroradius(v_perp; q=q, m=m, B=B)
     return norm(v_perp)/abs(get_ω_c(q=q, m=m, B=B))
@@ -103,124 +102,9 @@ function get_ω_c(;q=e.val, m=m_u.val, B=1.)
     return q/m*norm(B)
 end 
 
-function integrate_orbit_with_adaptive_GCA_pusher(t_end, r, u_last_half; q=q, m=m, B=B, 
-                                                  n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, 
-                                                  neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
-                                                  CX_fractions=[], T_n=300., dt_FO=1e-09, dt_GC=1e-08, saveat=1e-07, 
-                                                  velocity_diffusion=true, rng=default_rng())
-    """"
-    Only applicable for B-field aligned with z-axis 
-
-    s vector defined in opposite direction as in Rode2023
-
-    UNDER DEVELOPMENT
-
-    #TODO: add rng seeding 
-    """
-    t = 0.0
-    dt = dt_FO
-    local R, μ, v_par_last_half, gyrophase, v_perp_norm, s 
-    R = [NaN, NaN, NaN]
-
-    sample_times = Vector{Float64}([])
-    positions = Vector{Vector{Float64}}([])
-    velocities = Vector{Vector{Float64}}([])
-    push_types = Vector{String}([])
-    function inside_plasma(r, n_b)
-        if -0.03 < r[3] < 0.05 && n_b > 0. 
-            return true
-        else 
-            return false 
-        end 
-    end 
-
-    while t < t_end 
-        if inside_plasma(r, n_b) # inside plasma #TODO: Add exact description of plasma boundary
-            if dt == dt_GC # switch from GCA to FO
-                b = B/norm(B)
-                v_perp_norm = sqrt(2*μ*norm(B)/m)
-                gyroradius = get_gyroradius(v_perp_norm, q=q, m=m, B=B)
-                s = -gyroradius*[cos(gyrophase),sin(gyrophase),0]
-                r = R + s
-                E = E_itp(r)
-                v_ExB = cross(E,B)/norm(B)^2
-                u_last_half = v_perp_norm*cross(s,B)/norm(cross(s,B)) + v_ExB + v_par_last_half*b
-                println(dot(E,s))
-            end
-            E = E_itp(r)
-            r_next, u_next_half = Boris_push_with_friction(r, u_last_half, E, B, dt_FO, q=q, m=m,  
-                                                           n_b=n_b, T_b=T_b, q_b=q_b, m_b=m_b, 
-                                                           velocity_diffusion=velocity_diffusion) 
-
-            # Record data 
-            #TODO: Test
-            if mod(t, saveat) < dt_FO
-                push!(sample_times, t)
-                push!(positions, r)
-                push!(velocities, (u_last_half + u_next_half)/2) # (u_last_half*dt + u_next_half*dt_FO)/(dt + dt_FO)) 
-                push!(push_types, "FO")
-            end
-            r = r_next 
-            u_last_half = u_next_half 
-            dt = dt_FO # update for FO-GCA switch checks
-        else
-            if dt == dt_FO # switch from FO to GCA 
-                b = B/norm(B)
-                vxB = cross(u_last_half,B)
-                E = E_itp(r)
-                v_ExB = cross(E,B)/norm(B)^2
-                v_par_last_half = dot(u_last_half,b)
-                v_perp_norm = norm(u_last_half - v_par_last_half*b - v_ExB)    # sqrt(2*μ*B/m)
-                μ = m*v_perp_norm^2/(2*norm(B))
-                gyroradius = get_gyroradius(v_perp_norm, q=q, m=m, B=B)
-                s = -gyroradius*vxB/norm(vxB)
-                R = r - s 
-                if t > 0.0 && v_par_last_half > 0 
-                    gyrophase = atan(s[2]/s[1]) + pi
-                else 
-                    gyrophase = atan(s[2]/s[1])
-                end
-                println(dot(E,s))
-            end
-            R_next, μ_next, v_par_next_half, gyrophase_next = GC_push_with_gyrophase(R, μ, v_par_last_half, gyrophase, B, dt_GC, q=q, m=m)
-
-            # Record data
-            #TODO: Test
-            if mod(t, saveat) < dt_GC
-                b = B/norm(B)
-                E = E_itp(R)
-                v_ExB = cross(E,B)/norm(B)^2
-                u_last_half = v_perp_norm*cross(s,B)/norm(cross(s,B)) + v_ExB + v_par_last_half*b
-                v_perp_norm_next = sqrt(2*μ_next*norm(B)/m)
-                E = E_itp(R_next)
-                v_ExB_next = cross(E,B)/norm(B)^2
-                v_ExB_next_half = (v_ExB + v_ExB_next)/2
-                u_next_half = v_perp_norm_next*cross(s,B)/norm(cross(s,B)) + v_ExB_next_half + v_par_next_half*b
-                gyroradius = get_gyroradius(v_perp_norm, q=q, m=m, B=B)
-                s = -gyroradius*[cos(gyrophase),sin(gyrophase),0]
-                r = R + s
-                push!(sample_times, t)
-                push!(positions, r)
-                push!(velocities, (u_last_half + u_next_half)/2) #(u_last_half*dt + u_next_half*dt_GC)/(dt + dt_GC)) 
-                push!(push_types, "GCA")
-            end
-            R = R_next 
-            μ = μ_next
-            v_par_last_half = v_par_next_half
-            gyrophase = gyrophase_next
-            r = R # update for inside plasma check
-            dt = dt_GC # update for FO-GCA switch checks
-        end
-        t += dt
-    end
-
-    return sample_times, positions, velocities, push_types
-end
-
 function vel_from_E_per_q(E_kin, q, m)
     return sqrt(2*q*E_kin/m)
 end 
-
 
 import NaNStatistics: nanmean
 include("Diagnostics.jl")
@@ -241,7 +125,7 @@ using HDF5
 using Dates
 using ProgressBars
 """Serial or parallelized tracing of multiple ion orbits in CPET trap potential"""
-function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ_z0=0.005, σ_xy0=0.001, 
+function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.123, σ_z0=0.0, σ_xy0=0.001, 
                               q0=e.val, m0_u=[23], m0_probs=[1.], N_ions=100, B=[0.,0.,7.], 
                               T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
                               neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
@@ -265,7 +149,6 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
     V_sitp = get_V_sitp(r_b)
 
     ### Randomly initialize ion energies and radial positions
-    # TODO consider initial conditions
     if isnothing(seed)
         rng = default_rng()
     else
@@ -273,12 +156,8 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
     end
     x0 = rand(rng, Normal(0.0, σ_xy0), N_ions)
     y0 = rand(rng, Normal(0.0, σ_xy0), N_ions)
-    # r0 = rand(rng, Normal(0.0, σ_r0), N_ions)
-    # ϕ0 = rand(rng, N_ions)*pi
-    # x0 = [ r0[pid]*cos(ϕ0[pid]) for pid in range(1,N_ions)]
-    # y0 = [ r0[pid]*sin(ϕ0[pid]) for pid in range(1,N_ions)]
     m0 = StatsBase.sample(rng, m0_u, StatsBase.ProbabilityWeights(Vector(m0_probs)), N_ions)*m_u.val
-    z0 = rand(rng, Normal(μ_z0, σ_z0), N_ions) # TODO: Set μ_pos0 to capture well centre
+    z0 = rand(rng, Normal(μ_z0, σ_z0), N_ions) 
     pos0 = [[x0[pid], y0[pid], z0[pid]] for pid in range(1,N_ions)]
     E0_par = [rand(rng, truncated(Normal(μ_E0_par, σ_E0_par); lower=V_itp(pos0[pid], V_sitp=V_sitp))) for pid in range(1,N_ions)] 
     v0_par = vel_from_E_per_q.(E0_par .- V_itp.(pos0, V_sitp=V_sitp), q0, m0)
@@ -341,6 +220,7 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.125, σ
         info["σ_E0_par"] = σ_E0_par
         info["σ_E0_perp"] = σ_E0_perp
         info["μ_z0"] = μ_z0
+        info["σ_z0"] = σ_z0
         info["σ_xy0"] = σ_xy0
         info["q0"] = q0
         info["m0_u"] = m0_u

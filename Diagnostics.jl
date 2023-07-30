@@ -83,6 +83,7 @@ end
     σ_E0_par::Float64
     σ_E0_perp::Float64
     μ_z0::Float64
+    σ_z0::Float64
     σ_xy0::Float64
     q0::Float64
     m0_u::Vector{Float64}
@@ -120,6 +121,7 @@ function get_run_info(fname; rel_path="/Tests/OutputFiles/")
                         σ_E0_par = read(info["σ_E0_par"]),
                         σ_E0_perp = read(info["σ_E0_perp"]),
                         μ_z0 = read(info["μ_z0"]),
+                        σ_z0 = read(info["σ_z0"]),
                         σ_xy0 = read(info["σ_xy0"]),
                         q0 = read(info["q0"]),
                         m0_u = read(info["m0_u"]),
