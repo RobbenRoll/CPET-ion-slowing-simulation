@@ -1,5 +1,4 @@
 
-# Check for collision event and determine collision partner
 using Random
 using StaticArrays
 import PhysicalConstants.CODATA2018: c_0, ε_0, m_e, e, m_u, k_B, ħ
@@ -22,7 +21,7 @@ function get_b_crit(v_i::SVector{3,Float64}, q::Float64, m_i::Float64; m_n=2*m_u
     """Critical impact parameter for Langevin collision [m]
     
     """
-    v_rel = sqrt(norm(v_i)^2 + 3*k_B.val*T_n/m_n) # TODO: Verify
+    v_rel = sqrt(norm(v_i)^2 + 3*k_B.val*T_n/m_n) 
     m_red = m_i*m_n/(m_i + m_n)
     E_coll = 0.5*m_red*v_rel^2 # COM coll. energy [J]
     C4 = alpha*q^2/(4*π*ε_0.val)
