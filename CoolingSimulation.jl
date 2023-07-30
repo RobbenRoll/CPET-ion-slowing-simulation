@@ -22,7 +22,7 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
         throw("Lengths of `neutral_masses`, `neutral_pressures_mbar`, `alphas` and `CX_fractions` do not match.")
     end
     t_end = times[end]
-    N_samples = Int64(floor(t_end/(sample_every*dt))) + 1
+    N_samples = Int64(floor(round(t_end/(sample_every*dt), digits=6))) + 1
     sample_times = zeros(Float64, N_samples) #Vector{Float64}([])
     mass_hist = zeros(Float64, N_samples)
     charge_hist = zeros(Float64, N_samples)
