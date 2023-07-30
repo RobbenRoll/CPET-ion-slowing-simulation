@@ -366,37 +366,40 @@ function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_
     detectable_err_mean_E_par = get_err_of_mean(detectable_E_par) 
     
     # Detectable ion fraction
-    function plot_detectable_ion_number(sample_times, detectable_N_ions, exp_data_fname)
-        f = plot(smoothed_sample_times, detectable_N_ions/N_ions, xlabel="t (s)", ylabel="Detectable ion fraction", label="model")
+    function plot_detectable_ion_number(smoothed_sample_times, detectable_N_ions, exp_data_fname)
+        f = plot(smoothed_sample_times, detectable_N_ions/N_ions, xlabel="Time (s)", 
+                 ylabel="Detectable ion fraction", label="model")
         if !isnothing(exp_data_fname)
             scatter!(times_exp, N_ions_exp/maximum(N_ions_exp), yerror=err_N_ions_exp/maximum(N_ions_exp), 
-                     linecolor="red", markershape=:circle, label="exp. data")
+                     markershape=:circle, markercolor=:black, label="exp. data")
         end 
         display(f)
     end
     plot_detectable_ion_number(smoothed_sample_times, detectable_N_ions, exp_data_fname)
 
     # Longitudinal energy evolutions
-    f = plot(xlabel="Time (s)", ylabel=L"Longitudinal ion energy $E_\parallel$ (eV/q)",  legend=false)
+    f = plot(xlabel="Time (s)", ylabel=L"Longitudinal ion energy $E_\parallel$ (eV/q)", 
+             legend=false)
     plot!(smoothed_sample_times, [E_par[i,:] for i in range(1,N_ions)], linestyle=:dash)
     plot!(smoothed_sample_times, [detectable_E_par[i,:] for i in range(1,N_ions)]) # TODO use same colors as for dashed lines
     plot!(smoothed_sample_times, detectable_mean_E_par, linewidth=3, linecolor="red")
     plot!(smoothed_sample_times, mean_E_par, linewidth=3, linecolor="black")
     if !isnothing(exp_data_fname)
         scatter!(times_exp, mean_E_par_exp , yerror=err_mean_E_par_exp, 
-                 markershape=:circle, label="exp. data")
+                 markershape=:circle, markercolor=:black, label="exp. data")
     end 
     display(f)
 
     # Mean longitudinal energy evolution
-    f = plot(xlabel="Time (s)", ylabel=L"Mean longitudinal ion energy $\langle E_\parallel\rangle$ (eV/q)", legend=true)
+    f = plot(xlabel="Time (s)", ylabel=L"Mean longitudinal ion energy $\langle E_\parallel\rangle$ (eV/q)", 
+             legend=true)
     plot!(smoothed_sample_times, detectable_mean_E_par, 
           ribbon=detectable_err_mean_E_par, linewidth=1, linecolor="red", label="Detectable ions")
     plot!(smoothed_sample_times, mean_E_par, 
           ribbon=err_mean_E_par, linewidth=1, linecolor="black", label="All ions")
     if !isnothing(exp_data_fname)
         scatter!(times_exp, mean_E_par_exp , yerror=err_mean_E_par_exp, 
-                 markershape=:circle, label="exp. data")
+                 markershape=:circle, markercolor=:black, label="exp. data")
     end 
     display(f)
 
@@ -406,8 +409,8 @@ function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_
     plot!(smoothed_sample_times, std_E_par, linecolor="black", label="All ions")
     
     if !isnothing(exp_data_fname)
-        scatter!(times_exp, std_E_par_exp, 
-                 markershape=:circle, label="exp. data")
+        scatter!(times_exp, std_E_par_exp, label="exp. data",
+                 markershape=:circle, markercolor=:black)
     end 
     display(f)
 
