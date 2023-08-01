@@ -254,12 +254,12 @@ function G(x)
 end
 
 function Coulomb_log(n_b; T_b=300., q=e.val)
-    """Coulomb logarithm for electron-ion scattering"""
+    """Coulomb logarithm for electron-ion scattering from NRL Plasma Formulary 2016"""
     return 23. - log(sqrt(n_b*1e-06)*(q/e.val)/(k_B.val*T_b/e.val)^1.5)
 end    
 
 function get_ν_0(v; n_b=1e08*1e06, T_b=300., q_b=-e.val, m_b=m_e.val, q=e.val, m=m_u.val)
-    """Calculate characteristic frequency (as also defined in Kunz2021 Lecture notes)"""
+    """Calculate characteristic frequency (as also defined in CGS units in Kunz2021 lecture notes)"""
     v_b = sqrt(2*k_B.val*T_b/m_b)
     if m_b == m_e.val
         Coul_log = Coulomb_log(n_b, T_b=T_b, q=q)
