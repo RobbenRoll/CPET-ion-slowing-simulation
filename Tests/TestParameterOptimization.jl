@@ -154,7 +154,6 @@ const μ_E0_par, σ_E0_par = 84., 13.
 const σ_E0_perp = 0.5
 
 # Define plasma parameters
-n_b = 0.0 #1e07*1e06
 T_b = 300.
 const q_b = -e.val 
 const m_b = m_e.val
@@ -168,7 +167,7 @@ CX_fractions = [0., 0., 0., 0.]
 T_n = 300. 
 
 # Define run parameters
-n_procs = 15
+n_workers = 15
 t_end = 3700e-03
 dt = 3e-08 # TODO: Reduce again!
 sample_every = 200
@@ -186,16 +185,16 @@ end
 
 ##### Run test simulation
 function eval_plasma_off_loss(x; q=e.val, m0_u=[23], m0_probs=[1.], q_b=-e.val, r_b=0.0, T_b=300, seed=seed, 
-                              exp_data_fname=nothing, max_detectable_r=8e-04, n_smooth_E=51, n_procs=n_procs)    
+                              exp_data_fname=nothing, max_detectable_r=8e-04, n_smooth_E=51, n_workers=n_workers)    
    neutral_pressures_mbar = x[1:4]
    σ_xy0 = x[5]
 
     orbits =  integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; 
                                    μ_z0=μ_z0, σ_z0=σ_z0, σ_xy0=σ_xy0,  q0=q, m0_u=m0_u, m0_probs=m0_probs, N_ions=N_ions, B=B, 
-                                   n_b=0.0, T_b=T_b, q_b=q_b, m_b=m_b, r_b=r_b,
+                                   T_b=T_b, q_b=q_b, m_b=m_b, r_b=r_b,
                                    neutral_masses=neutral_masses, neutral_pressures_mbar=neutral_pressures_mbar, 
                                    alphas=alphas, CX_fractions=CX_fractions, T_n=T_n, seed=seed, 
-                                   t_end=t_end, dt=dt, sample_every=sample_every, n_procs=n_procs,
+                                   t_end=t_end, dt=dt, sample_every=sample_every, n_workers=n_workers,
                                    velocity_diffusion=velocity_diffusion, fname=nothing)
       
     sample_times = orbits[1][1,:]
@@ -208,7 +207,7 @@ function eval_plasma_off_loss(x; q=e.val, m0_u=[23], m0_probs=[1.], q_b=-e.val, 
                     charge_hists, mass_hists, q_b=q_b, r_b=r_b, T_b=T_b,
                     n_smooth_E=n_smooth_E, exp_data_fname=exp_data_fname)
     
-    #loss_val = g(x)
+    # loss_val = g(x) # for sped-up testing 
     
     # Clean up shared arrays 
     finalize(sample_times)
@@ -221,19 +220,19 @@ function eval_plasma_off_loss(x; q=e.val, m0_u=[23], m0_probs=[1.], q_b=-e.val, 
     return loss_val
 end
 
-function eval_combined_plasma_off_loss(x; q=q, q_b=q_b, T_b=T_b, max_detectable_r=8e-04, n_smooth_E=51, seed=seed, n_procs=n_procs)
+function eval_combined_plasma_off_loss(x; q=q, q_b=q_b, T_b=T_b, max_detectable_r=8e-04, n_smooth_E=51, seed=seed, n_workers=n_workers)
     r_b=0.0 # turn plasma off 
     loss_val_Na = eval_plasma_off_loss(x; q=q, m0_u=alkali_mass_data["Na"][1], m0_probs=alkali_mass_data["Na"][2],               
                                        exp_data_fname=exp_data_fname_Na, q_b=q_b, r_b=r_b, T_b=T_b, seed=seed, 
-                                       max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_procs=n_procs)
+                                       max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_workers=n_workers)
     
     loss_val_K = eval_plasma_off_loss(x; q=q, m0_u=alkali_mass_data["K"][1], m0_probs=alkali_mass_data["K"][2],               
                                       exp_data_fname=exp_data_fname_K, q_b=q_b, r_b=r_b, T_b=T_b, seed=seed, 
-                                      max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_procs=n_procs)
+                                      max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_workers=n_workers)
     
     loss_val_Rb = eval_plasma_off_loss(x; q=q, m0_u=alkali_mass_data["Rb"][1], m0_probs=alkali_mass_data["Rb"][2],               
                                        exp_data_fname=exp_data_fname_Rb, q_b=q_b, r_b=r_b, T_b=T_b, seed=seed, 
-                                       max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_procs=n_procs)
+                                       max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E, n_workers=n_workers)
     println()
     println(x)
     println([loss_val_Na, loss_val_K, loss_val_Rb])
@@ -241,67 +240,7 @@ function eval_combined_plasma_off_loss(x; q=q, q_b=q_b, T_b=T_b, max_detectable_
 end
 
 #x = push!(neutral_pressures_mbar, σ_xy0)
-#@time eval_combined_plasma_off_loss(x; max_detectable_r=8e-04, n_smooth_E=51, n_procs=n_procs)
-
-
-# # ###### BlackBoxOptim 
-# # ### multiobjective.jl
-# # using BlackBoxOptim, Gadfly
-# # using LinearAlgebra
-
-# # # run Borg MOAE
-# # guess = neutral_pressures_mbar
-# # res = bboptimize(eval_plasma_off_orbits, guess; Method=:borg_moea,
-# #                  FitnessScheme=ParetoFitnessScheme{3}(is_minimizing=true),
-# #                  SearchRange=(1e-10, 1e-07), NumDimensions=length(guess), ϵ=0.1,
-# #                  MaxSteps=15, TraceInterval=1.0, TraceMode=:verbose);
-
-# ##### Surrogates.jl - AbstractGPs
-# ### Optimization example
-# using Surrogates
-# using Plots
-# using AbstractGPs
-# using SurrogatesAbstractGPs
-
-# n_samples = 30
-# lower_bounds = [1e-10,1e-10,1e-10,5e-11, 0.0001]
-# upper_bounds = [1e-08, 5e-09, 5e-09, 1e-09, 0.0005]
-# #xs = minimum(lower_bounds):5e-10:maximum(upper_bounds)
-# x = Surrogates.sample(n_samples, lower_bounds, upper_bounds, SobolSample())
-    
-# y = eval_combined_plasma_off_loss.(x)
-# gp_surrogate = AbstractGPSurrogate(x,y)
-
-# # Plot samples from surrogate GaussianProcess
-# f = scatter(getindex.(gp_surrogate.x,1), gp_surrogate.y, label="Sampled points", 
-#             xlabel="H2 pressure (mbar)", ylabel="Loss")
-# #plot!(xs[1], gp_surrogate.(xs), label="Surrogate function", ribbon=p->std_error_at_point(gp_surrogate, p), legend=:top)
-# savefig(f, "SurrogateGC_samples_H2.png") 
-# #display(f)
-
-# f = scatter(getindex.(gp_surrogate.x,2), gp_surrogate.y, label="Sampled points", 
-#             xlabel="H2O pressure (mbar)", ylabel="Loss")
-# savefig(f, "SurrogateGC_samples_H2O.png") 
-# #display(f)
-
-# f = scatter(getindex.(gp_surrogate.x,3), gp_surrogate.y, label="Sampled points", 
-#             xlabel="N2 pressure (mbar)", ylabel="Loss")
-# savefig(f, "SurrogateGC_samples_N2.png") 
-# #display(f)
-
-# f = scatter(getindex.(gp_surrogate.x,4), gp_surrogate.y, label="Sampled points", 
-#             xlabel="CO2 pressure (mbar)", ylabel="Loss")
-# savefig(f, "SurrogateGC_samples_CO2.png") 
-# #display(f)
-
-# f = scatter(getindex.(gp_surrogate.x,5), gp_surrogate.y, label="Sampled points", 
-#             xlabel="σ_xy0 (m)", ylabel="Loss")
-# savefig(f, "SurrogateGC_samples_sigma_xy0.png") 
-
-# @time best_values = surrogate_optimize(eval_combined_plasma_off_loss, SRBF(), lower_bounds, upper_bounds, gp_surrogate, SobolSample())
-
-# println(best_values)
-
+#@time eval_combined_plasma_off_loss(x; max_detectable_r=8e-04, n_smooth_E=51, n_workers=n_workers)
 
 ##### Surrogates.jl - Kriging
 ### Optimization example
@@ -317,10 +256,11 @@ sampling_func = GoldenSample() # SobolSample() #  # LatinHypercubeSample()
 acquisition_func = SRBF() #EI()
 maxiters = 50 
 num_new_samples = 300
+noise_variance = 1.23^2
 
 output_fname = "optimization_results"
 
-u = LinRange(lower_bounds[1], upper_bounds[1], 100)
+u = LinRange(lower_bounds[1], upper_bounds[1], 1000)
 xs = [(ui,x0[2],x0[3],x0[4],x0[5]) for ui in u] 
 x = Surrogates.sample(n_samples, lower_bounds, upper_bounds, sampling_func)
 println(x)
@@ -329,7 +269,7 @@ println(y)
 
 # Build surrogate
 theta = [0.5 / max(1e-6 * norm(upper_bounds .- lower_bounds), std(x_i[i] for x_i in x))^p[i] for i in 1:length(x[1])] # default from Kriging.jl
-surrogate = Kriging(x, y, lower_bounds, upper_bounds, p=p, theta=theta)
+surrogate = Kriging(x, y, lower_bounds, upper_bounds, p=p, theta=theta, noise_variance=noise_variance)
 println("Samples:")
 println(surrogate.x)
 println("Loss values:")
@@ -358,31 +298,72 @@ init_samples["combined_loss_vals"] = surrogate.y
 close(fid)
 println("Initial sample data written to " * output_fname * ".h5")
 
-# Plot samples from surrogate GaussianProcess
-f = scatter(getindex.(surrogate.x,1), surrogate.y, label="Sampled points", 
-            xlabel="H2 pressure (mbar)", ylabel="Loss", yscale=:log10, margin=5mm)
-plot!(getindex.(xs,1), ys, label="Surrogate function", legend=:top) #, ribbon=p->std_error_at_point(surrogate, (p,xs[1][2])))
+
+# Plot initial samples from surrogate
+function get_contour_levels(zz, n_levels = 30) 
+    levels = Vector(0.0:1.05*maximum(zz)/n_levels:1.05*maximum(zz))
+    return levels
+end 
+
+u = LinRange(lower_bounds[1], upper_bounds[1], 1000)
+v = LinRange(lower_bounds[2], upper_bounds[2], 1000)
+ZZ = [surrogate([ui,vi,x0[3],x0[4],x0[5]]) for vi in v, ui in u] 
+levels = get_contour_levels(ZZ)
+f = contourf(u, v, ZZ, levels=levels, margin=10Plots.mm, title=L"\mathrm{Loss}", xlabel=L"H_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", ylabel=L"H_2O \;\mathrm{pressure}\;\mathrm{(mbar)}", left_margin=18Plots.mm)
+scatter!(getindex.(surrogate.x,1), getindex.(surrogate.x,2), marker_z=surrogate.y, label="Samples")
+savefig(f, "Surrogate_loss_contour_H2_and_H20_pressure.png") 
+
+u = LinRange(lower_bounds[1], upper_bounds[1], 1000)
+v = LinRange(lower_bounds[3], upper_bounds[3], 1000)
+ZZ = [surrogate([ui,x0[2],vi,x0[4],x0[5]]) for vi in v, ui in u] 
+levels = get_contour_levels(ZZ)
+f = contourf(u, v, ZZ, levels=levels, margin=10Plots.mm, title=L"\mathrm{Loss}", xlabel=L"H_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", ylabel=L"N_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", left_margin=18Plots.mm)
+scatter!(getindex.(surrogate.x,1), getindex.(surrogate.x,3), marker_z=surrogate.y, label="Samples")
+savefig(f, "Surrogate_loss_contour_H2_and_N2_pressure.png") 
+
+u = LinRange(lower_bounds[1], upper_bounds[1], 1000)
+v = LinRange(lower_bounds[4], upper_bounds[4], 1000)
+ZZ = [surrogate([ui,x0[2],x0[3],vi,x0[5]]) for vi in v, ui in u] 
+levels = get_contour_levels(ZZ)
+f = contourf(u, v, ZZ, levels=levels,
+             margin=10Plots.mm, title=L"\mathrm{Loss}", xlabel=L"H_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", ylabel=L"CO_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", left_margin=18Plots.mm)
+scatter!(getindex.(surrogate.x,1), getindex.(surrogate.x,4), marker_z=surrogate.y, label="Samples")
+savefig(f, "Surrogate_loss_contour_H2_and_CO2_pressure.png") 
+
+u = LinRange(lower_bounds[1], upper_bounds[1], 1000)
+v = LinRange(lower_bounds[5], upper_bounds[5], 1000)
+ZZ = [surrogate([ui,x0[2],x0[3],x0[4],vi]) for vi in v, ui in u] 
+levels = get_contour_levels(ZZ)
+f = contourf(u, v, ZZ, levels=levels, margin=10Plots.mm, title=L"\mathrm{Loss}", xlabel=L"H_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", ylabel=L"σ_{xy,0} \;\mathrm{(m)}", left_margin=18Plots.mm)
+scatter!(getindex.(surrogate.x,1), getindex.(surrogate.x,5), marker_z=surrogate.y, label="Samples")
+savefig(f, "Surrogate_loss_contour_H2_pressure_and_sigma_xy.png") 
+
+yerrs = std_error_at_point.(surrogate, xs)
+f = scatter(getindex.(surrogate.x,1), surrogate.y, label="Sampled points", ylim=(1e-03,1e02),
+            xlabel="H2 pressure (mbar)", ylabel="Loss", #yscale=:log10, 
+            margin=10Plots.mm)
+plot!(getindex.(xs,1), ys, label="Surrogate function", legend=:top, ribbon=yerrs)
 plot!(getindex.(xs,1), g.(xs), label="True function")
 savefig(f, "Surrogate_samples_H2.png") 
 #display(f)
 
 f = scatter(getindex.(surrogate.x,2), surrogate.y, label="Sampled points", 
-            xlabel="H2O pressure (mbar)", ylabel="Loss", yscale=:log10, margin=5mm)
+            xlabel="H2O pressure (mbar)", ylabel="Loss", yscale=:log10, margin=10Plots.mm)
 savefig(f, "Surrogate_samples_H2O.png") 
 #display(f)
 
 f = scatter(getindex.(surrogate.x,3), surrogate.y, label="Sampled points", 
-            xlabel="N2 pressure (mbar)", ylabel="Loss", yscale=:log10, margin=5mm)
+            xlabel="N2 pressure (mbar)", ylabel="Loss", yscale=:log10, margin=10Plots.mm)
 savefig(f, "Surrogate_samples_N2.png") 
 # #display(f)
 
 f = scatter(getindex.(surrogate.x,4), surrogate.y, label="Sampled points", 
-            xlabel="CO2 pressure (mbar)", ylabel="Loss", yscale=:log10, margin=5mm)
+            xlabel="CO2 pressure (mbar)", ylabel="Loss", yscale=:log10, margin=10Plots.mm)
 savefig(f, "Surrogate_samples_CO2.png") 
 # #display(f)
 
 f = scatter(getindex.(surrogate.x,5), surrogate.y, label="Sampled points", 
-            xlabel="σ_xy0 (m)", ylabel="Loss", yscale=:log10, margin=5mm)
+            xlabel="σ_xy0 (m)", ylabel="Loss", yscale=:log10, margin=10Plots.mm)
 savefig(f, "Surrogate_samples_sigma_xy0.png") 
 
 println(pathof(Surrogates))
@@ -392,31 +373,67 @@ println(res)
 #println(x)
 #println(y)
 
+
 # Plot final samples from surrogate GaussianProcess
-f = scatter(getindex.(surrogate.x,1), surrogate.y, label="Sampled points", 
-            xlabel="H2 pressure (mbar)", ylabel="Loss", yscale=:log10)
-plot!(getindex.(xs,1), surrogate.(xs), label="Surrogate function", legend=:top, margin=5mm) #, ribbon=p->std_error_at_point(surrogate, (p,xs[1][2])))
+u = LinRange(lower_bounds[1], upper_bounds[1], 1000)
+v = LinRange(lower_bounds[2], upper_bounds[2], 1000)
+ZZ = [surrogate([ui,vi,x0[3],x0[4],x0[5]]) for vi in v, ui in u] 
+levels = get_contour_levels(ZZ)
+f = contourf(u, v, ZZ, levels=levels, title=L"\mathrm{Loss}", xlabel=L"H_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", ylabel=L"H_2O \;\mathrm{pressure}\;\mathrm{(mbar)}", margin=10Plots.mm, left_margin=18Plots.mm)
+scatter!(getindex.(surrogate.x,1), getindex.(surrogate.x,2), marker_z=surrogate.y, label="Samples")
+savefig(f, "Surrogate_final_loss_contour_H2_and_H20_pressure.png") 
+
+u = LinRange(lower_bounds[1], upper_bounds[1], 1000)
+v = LinRange(lower_bounds[3], upper_bounds[3], 1000)
+ZZ = [surrogate([ui,x0[2],vi,x0[4],x0[5]]) for vi in v, ui in u] 
+levels = get_contour_levels(ZZ)
+f = contourf(u, v, ZZ, levels=levels,
+    margin=10Plots.mm, title=L"\mathrm{Loss}", xlabel=L"H_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", ylabel=L"N_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", left_margin=18Plots.mm)
+scatter!(getindex.(surrogate.x,1), getindex.(surrogate.x,3), marker_z=surrogate.y, label="Samples")
+savefig(f, "Surrogate_final_loss_contour_H2_and_N2_pressure.png") 
+
+u = LinRange(lower_bounds[1], upper_bounds[1], 1000)
+v = LinRange(lower_bounds[4], upper_bounds[4], 1000)
+ZZ = [surrogate([ui,x0[2],x0[3],vi,x0[5]]) for vi in v, ui in u]
+levels = get_contour_levels(ZZ)
+f = contourf(u, v, ZZ, levels=levels, margin=10Plots.mm, title=L"\mathrm{Loss}", xlabel=L"H_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", ylabel=L"CO_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", left_margin=18Plots.mm)
+scatter!(getindex.(surrogate.x,1), getindex.(surrogate.x,4), marker_z=surrogate.y, label="Samples")
+savefig(f, "Surrogate_final_loss_contour_H2_and_CO2_pressure.png") 
+
+u = LinRange(lower_bounds[1], upper_bounds[1], 1000)
+v = LinRange(lower_bounds[5], upper_bounds[5], 1000)
+ZZ = [surrogate([ui,x0[2],x0[3],x0[4],vi]) for vi in v, ui in u] 
+levels = get_contour_levels(ZZ)
+f = contourf(u, v, ZZ, levels=levels, margin=10Plots.mm, title=L"\mathrm{Loss}", xlabel=L"H_2 \;\mathrm{pressure}\;\mathrm{(mbar)}", ylabel=L"σ_{xy0} \;\mathrm{(m)}", left_margin=18Plots.mm)
+scatter!(getindex.(surrogate.x,1), getindex.(surrogate.x,5), marker_z=surrogate.y, label="Samples")
+savefig(f, "Surrogate_final_loss_contour_H2_pressure_and_sigma_xy.png") 
+
+yerrs = std_error_at_point.(surrogate, xs)
+f = scatter(getindex.(surrogate.x,1), surrogate.y, label="Sampled points", ylim=(1e-03,1e02),
+            xlabel="H2 pressure (mbar)", ylabel="Loss", #yscale=:log10, 
+            margin=10Plots.mm)
+plot!(getindex.(xs,1), surrogate.(xs), label="Surrogate function", legend=:top, ribbon=yerrs)
 plot!(getindex.(xs,1), g.(xs), label="True function")
 savefig(f, "Surrogate_final_samples_H2.png") 
 #display(f)
 
 f = scatter(getindex.(surrogate.x,2), surrogate.y, label="Sampled points", 
-            xlabel="H2O pressure (mbar)", ylabel="Loss", yscale=:log10, margin=5mm)
+            xlabel="H2O pressure (mbar)", ylabel="Loss", yscale=:log10, margin=10Plots.mm)
 savefig(f, "Surrogate_final_samples_H2O.png") 
 #display(f)
 
 f = scatter(getindex.(surrogate.x,3), surrogate.y, label="Sampled points", 
-            xlabel="N2 pressure (mbar)", ylabel="Loss", yscale=:log10, margin=5mm)
+            xlabel="N2 pressure (mbar)", ylabel="Loss", yscale=:log10, margin=10Plots.mm)
 savefig(f, "Surrogate_final_samples_N2.png") 
 # #display(f)
 
 f = scatter(getindex.(surrogate.x,4), surrogate.y, label="Sampled points", 
-            xlabel="CO2 pressure (mbar)", ylabel="Loss", yscale=:log10, margin=5mm)
+            xlabel="CO2 pressure (mbar)", ylabel="Loss", yscale=:log10, margin=10Plots.mm)
 savefig(f, "Surrogate_final_samples_CO2.png") 
 # #display(f)
 
 f = scatter(getindex.(surrogate.x,5), surrogate.y, label="Sampled points", 
-            xlabel="σ_xy0 (m)", ylabel="Loss", yscale=:log10, margin=5mm)
+            xlabel="σ_xy0 (m)", ylabel="Loss", yscale=:log10, margin=10Plots.mm)
 savefig(f, "Surrogate_final_samples_sigma_xy0.png") 
 
 # Write final sample data to attributes 

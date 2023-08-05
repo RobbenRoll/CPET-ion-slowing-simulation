@@ -8,7 +8,8 @@ include("../IonNeutralCollisions.jl")
 mbar_to_Torr = 0.7500616827 
 
 # Compile atomic masses from https://www-nds.iaea.org/relnsd/vcharthtml/VChartHTML.html (AME2020)
-# Masses given to micro-u precision
+# Masses given to micro-u precision - List isotopic masses and respective relative natural abundances for 
+# each isotope of an element (neglecting isotopes with < 1% abundance)
 alkali_mass_data = Dict("Na" => ([22.989769], [1.]), 
                         "K"  => ([38.963706, 40.961825], [0.933, 0.067]),
                         "Rb" => ([84.911790, 86.909180], [0.722, 0.278]) ) 
