@@ -23,7 +23,7 @@ q0 = e.val
 species = "K"
 m0_u, m0_probs = alkali_mass_data[species]  
 m0_u = m0_u .- round(q0/e.val)*m_e_u # correct for electron mass, neglect atomic binding energies
-const N_ions = 100
+const N_ions = 10
 const μ_z0 = -0.123
 const σ_z0 = 0.0
 const σ_xy0 =  0.00033 #0.00039 #0.00018 #0.0001796875 #0.00025
@@ -50,7 +50,7 @@ printfmt("Detectable total pressure:  {:.2e} mbar / {:.2e} Torr \n", detectable_
 
 # Define trajectory tracing parameters
 n_workers = 10
-t_end = 3700e-03
+t_end = 3.700e-03
 dt = 1e-08
 sample_every = 5000
 seed = 85383
@@ -65,7 +65,7 @@ include("../CoolingSimulation.jl")
 println("Starting compilation run")
 #using ProfileView
 # ProfileView.@profview
-@time integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; 
+@time integrate_ion_orbits(;μ_E0_par=μ_E0_par, σ_E0_par=σ_E0_par, σ_E0_perp=σ_E0_perp, 
                            μ_z0=μ_z0, σ_z0=σ_z0, σ_xy0=σ_xy0,  q0=q0, m0_u=m0_u, m0_probs=m0_probs, N_ions=N_ions, 
                            B=B, T_b=T_b, q_b=q_b, m_b=m_b, r_b=r_b,
                            neutral_masses=neutral_masses, neutral_pressures_mbar=neutral_pressures_mbar, 
@@ -73,7 +73,7 @@ println("Starting compilation run")
                            t_end=3*dt, dt=dt, sample_every=1, n_workers=n_workers,
                            velocity_diffusion=velocity_diffusion);
 println("Starting simulation run")
-@time integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; 
+@time integrate_ion_orbits(;μ_E0_par=μ_E0_par, σ_E0_par=σ_E0_par, σ_E0_perp=σ_E0_perp,
                            μ_z0=μ_z0, σ_z0=σ_z0, σ_xy0=σ_xy0,  q0=q0, m0_u=m0_u, m0_probs=m0_probs, N_ions=N_ions, 
                            B=B, T_b=T_b, q_b=q_b, m_b=m_b, r_b=r_b, 
                            neutral_masses=neutral_masses, neutral_pressures_mbar=neutral_pressures_mbar, 

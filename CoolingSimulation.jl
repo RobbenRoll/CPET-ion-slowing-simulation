@@ -8,6 +8,11 @@ import Distributions: Normal, truncated
 import PhysicalConstants.CODATA2018: c_0, ε_0, m_e, e, m_u, k_B, h, μ_B
 import SpecialFunctions: erf
 using StatsBase
+using Distributed
+using SharedArrays
+using HDF5
+using Dates
+using ProgressBars
 include("ParticlePushers.jl")
 include("IonNeutralCollisions.jl")
 
@@ -118,14 +123,8 @@ function get_mean_n_e(r_b; n_e_min=1e06)
     return mean_n_e
 end 
 
-#using Base.Threads
-using Distributed
-using SharedArrays
-using HDF5
-using Dates
-using ProgressBars
 """Serial or parallelized tracing of multiple ion orbits in CPET trap potential"""
-function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.123, σ_z0=0.0, σ_xy0=0.001, 
+function integrate_ion_orbits(;μ_E0_par=83.0, σ_E0_par=14.0, σ_E0_perp=0.5, μ_z0=-0.123, σ_z0=0.0, σ_xy0=0.001, 
                               q0=e.val, m0_u=[23], m0_probs=[1.], N_ions=100, B=[0.,0.,7.], 
                               T_b=300., q_b=-e.val, m_b=m_e.val, r_b=0.001,
                               neutral_masses=[], neutral_pressures_mbar=[], alphas=[], 
@@ -232,7 +231,7 @@ function integrate_ion_orbits(μ_E0_par, σ_E0_par, σ_E0_perp; μ_z0=-0.123, σ
         info["m_b"] = m_b
         info["r_b"] = r_b
         info["neutral_masses"] = neutral_masses
-        info["neutral_pressures_mbar"] = neutral_pressures_mbar
+        info["neutral_pressures_mbar"] = [el for el in neutral_pressures_mbar] # prevent error when neutral_pressures_mbar == NTuple type
         info["alphas"] = alphas
         info["CX_fractions"] = CX_fractions
         info["T_n"] = T_n
