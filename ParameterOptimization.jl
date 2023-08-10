@@ -178,9 +178,8 @@ function eval_combined_plasma_off_loss(x; orbit_tracing_kws::Dict, max_detectabl
     tracing_kws[:m0_probs] = alkali_mass_data["K"][2]
     if scale_time_step
         dt_Na = deepcopy(orbit_tracing_kws[:dt])
-        tracing_kws[:dt] = round(dt_Na*sqrt(mean(alkali_mass_data["K"][1].*alkali_mass_data["K"][2])/alkali_mass_data["Na"][1][1]), 
+        tracing_kws[:dt] = round(dt_Na*sqrt(sum(alkali_mass_data["K"][1].*alkali_mass_data["K"][2])/alkali_mass_data["Na"][1][1]), 
                                   digits=Int(floor(abs(log10(dt_Na))))+1)
-        println(tracing_kws[:dt])
     end
     loss_val_K = eval_single_species_loss(x; orbit_tracing_kws=tracing_kws, exp_data_fname=exp_data_fname_K, 
                                           max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E)
@@ -188,9 +187,8 @@ function eval_combined_plasma_off_loss(x; orbit_tracing_kws::Dict, max_detectabl
     tracing_kws[:m0_u] = alkali_mass_data["Rb"][1]
     tracing_kws[:m0_probs] = alkali_mass_data["Rb"][2]
     if scale_time_step
-        tracing_kws[:dt] = round(dt_Na*sqrt(mean(alkali_mass_data["Rb"][1].*alkali_mass_data["Rb"][2])/alkali_mass_data["Na"][1][1]), 
+        tracing_kws[:dt] = round(dt_Na*sqrt(sum(alkali_mass_data["Rb"][1].*alkali_mass_data["Rb"][2])/alkali_mass_data["Na"][1][1]), 
                                  digits=Int(floor(abs(log10(dt_Na))))+1)
-        println(tracing_kws[:dt])
     end
     loss_val_Rb = eval_single_species_loss(x; orbit_tracing_kws=tracing_kws, exp_data_fname=exp_data_fname_Rb, 
                                            max_detectable_r=max_detectable_r, n_smooth_E=n_smooth_E)
