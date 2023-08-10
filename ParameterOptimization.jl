@@ -102,7 +102,7 @@ function single_species_loss(sample_times, position_hists, velocity_hists,
     E_par_loss = penalized_nansum( ((detectable_mean_E_par .- mean_E_par_exp[1:length(it_eval)])./mean_E_par_exp[1:length(it_eval)]).^2 )
     std_E_par_loss = penalized_nansum( ((detectable_std_E_par .- std_E_par_exp[1:length(it_eval)])./std_E_par_exp[1:length(it_eval)]).^2 )
     N_ions_loss = sum( ((detectable_N_ions .- N_ions_exp[1:length(it_eval)])./N_ions_exp[1:length(it_eval)]).^2 )
-    total_loss = sum( E_par_loss + std_E_par_loss + 0.1*N_ions_loss )
+    total_loss = sum( E_par_loss + std_E_par_loss + 0.05*N_ions_loss )
 
     println(E_par_loss, " ", std_E_par_loss, " ", N_ions_loss)
     return total_loss #E_par_loss, std_E_par_loss, N_ions_loss
@@ -178,7 +178,7 @@ function eval_combined_plasma_off_loss(x; orbit_tracing_kws::Dict, max_detectabl
     tracing_kws[:m0_probs] = alkali_mass_data["K"][2]
     if scale_time_step
         dt_Na = deepcopy(orbit_tracing_kws[:dt])
-        tracing_kws[:dt] = round(dt_Na*sqrt(sum(alkali_mass_data["K"][1].*alkali_mass_data["K"][2])/alkali_mass_data["Na"][1][1]), 
+        tracing_kws[:dt] = round(dt_Na*sum(alkali_mass_data["K"][1].*alkali_mass_data["K"][2])/alkali_mass_data["Na"][1][1], 
                                   digits=Int(floor(abs(log10(dt_Na))))+1)
     end
     loss_val_K = eval_single_species_loss(x; orbit_tracing_kws=tracing_kws, exp_data_fname=exp_data_fname_K, 
@@ -187,7 +187,7 @@ function eval_combined_plasma_off_loss(x; orbit_tracing_kws::Dict, max_detectabl
     tracing_kws[:m0_u] = alkali_mass_data["Rb"][1]
     tracing_kws[:m0_probs] = alkali_mass_data["Rb"][2]
     if scale_time_step
-        tracing_kws[:dt] = round(dt_Na*sqrt(sum(alkali_mass_data["Rb"][1].*alkali_mass_data["Rb"][2])/alkali_mass_data["Na"][1][1]), 
+        tracing_kws[:dt] = round(dt_Na*sum(alkali_mass_data["Rb"][1].*alkali_mass_data["Rb"][2])/alkali_mass_data["Na"][1][1], 
                                  digits=Int(floor(abs(log10(dt_Na))))+1)
     end
     loss_val_Rb = eval_single_species_loss(x; orbit_tracing_kws=tracing_kws, exp_data_fname=exp_data_fname_Rb, 
