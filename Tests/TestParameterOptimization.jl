@@ -34,8 +34,9 @@ T_n = 300.
 
 # Define run parameters
 n_workers = 15
-t_end = 3.700e-03
-dt = 3e-08 # TODO: Reduce again!
+t_end = 3700e-03
+dt = 1e-08 # applies to Na only if scale_time_step == true
+scale_time_step = true
 sample_every = 200
 seed = 85383
 velocity_diffusion = true
@@ -53,7 +54,8 @@ orbit_tracing_kws = Dict(:μ_E0_par => μ_E0_par, :σ_E0_par => σ_E0_par, :σ_E
 # Define loss function 
 loss(x) = eval_combined_plasma_off_loss(x; orbit_tracing_kws=orbit_tracing_kws, 
                                         max_detectable_r=max_detectable_r, 
-                                        n_smooth_E=n_smooth_E, seed=seed)
+                                        n_smooth_E=n_smooth_E, seed=seed, 
+                                        scale_time_step=scale_time_step)
 #loss(x) = g(x) # for sped-up testing 
 
 # Define surrogate optimization parameters
@@ -111,7 +113,7 @@ println("Initial sample data written to " * output_fname * ".h5")
 
 # Plot initial samples from surrogate
 function get_contour_levels(zz, n_levels = 30) 
-    levels = Vector(0.0:1.05*maximum(zz)/n_levels:1.05*maximum(zz))
+    levels = Vector(0.0:1.1*maximum(zz)/n_levels:1.1*maximum(zz))
     return levels
 end 
 

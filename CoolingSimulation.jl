@@ -68,7 +68,7 @@ function integrate_orbit_with_friction(times, r, u_last_half; q=q, m=m, B=B,
         end
 
         # Sample time-centred particle data
-        if mod(it, sample_every) == 1
+        if mod(it, sample_every) == 1 || sample_every == 1
             i = Int64((it-1)/sample_every) + 1
             sample_times[i] = t 
             charge_hist[i] = q
