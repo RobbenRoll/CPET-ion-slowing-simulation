@@ -34,7 +34,7 @@ T_n = 300.
 
 # Define run parameters
 n_workers = 15
-t_end = 3700e-03
+t_end = 3.700e-03
 dt = 1e-08 # applies to Na only if scale_time_step == true
 scale_time_step = true
 sample_every = 200
@@ -99,6 +99,7 @@ optimizer_pars["lower_bounds"] = lower_bounds
 optimizer_pars["upper_bounds"] = upper_bounds
 optimizer_pars["p"] = p
 optimizer_pars["theta"] = theta
+optimizer_pars["noise_variance"] = noise_variance
 optimizer_pars["sampling_func"] = string(sampling_func)
 optimizer_pars["acquisition_func"] = string(acquisition_func)
 optimizer_pars["maxiters"] = maxiters
