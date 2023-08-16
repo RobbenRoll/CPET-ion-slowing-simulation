@@ -41,11 +41,11 @@ function single_species_loss(sample_times, position_hists, velocity_hists,
     
     # Determine ion species to use for fetching ramp correction data
     mean_m0_u = mean(mass_hists[:,1])/m_u.val
-    if isapprox(mean_m0_u, 23, atol=0.49)
+    if isapprox(mean_m0_u, 23, atol=0.9)
         species = "23Na"
-    elseif isapprox(mean_m0_u, 39.1, atol=0.49)
+    elseif isapprox(mean_m0_u, 39.1, atol=0.9)
         species = "39K"
-    elseif isapprox(mean_m0_u, 85.3, atol=0.49)
+    elseif isapprox(mean_m0_u, 85.3, atol=0.9)
         species = "85Rb"
     else 
         species = ""
@@ -102,7 +102,7 @@ function single_species_loss(sample_times, position_hists, velocity_hists,
     E_par_loss = penalized_nansum( ((detectable_mean_E_par .- mean_E_par_exp[1:length(it_eval)])./mean_E_par_exp[1:length(it_eval)]).^2 )
     std_E_par_loss = penalized_nansum( ((detectable_std_E_par .- std_E_par_exp[1:length(it_eval)])./std_E_par_exp[1:length(it_eval)]).^2 )
     N_ions_loss = sum( ((detectable_N_ions .- N_ions_exp[1:length(it_eval)])./N_ions_exp[1:length(it_eval)]).^2 )
-    total_loss = sum( E_par_loss + std_E_par_loss + 0.05*N_ions_loss )
+    total_loss = sum( E_par_loss + std_E_par_loss + 0.01*N_ions_loss )
 
     println(E_par_loss, " ", std_E_par_loss, " ", N_ions_loss)
     return total_loss #E_par_loss, std_E_par_loss, N_ions_loss
