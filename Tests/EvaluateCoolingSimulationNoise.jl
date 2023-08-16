@@ -12,10 +12,10 @@ const B = [0.,0.,7.]
 q0 = e.val
 m0_u = [23]
 m0_probs = [1.]
-const N_ions = 15
+const N_ions = 50
 const μ_z0 = -0.125
 const σ_z0 = 0.003
-const μ_E0_par, σ_E0_par = 78., 16.
+const μ_E0_par, σ_E0_par = 80., 16.
 const σ_E0_perp = 0.5
 
 # Define plasma parameters
@@ -34,10 +34,12 @@ T_n = 300.
 # Define run parameters
 n_workers = 15
 t_end = 3700e-03
-dt = 3e-08 # TODO: Reduce again!
+dt = 1e-08 
 sample_every = 5000
 seed = nothing # SET SEED TO NOTHING TO ALLOW FOR RANDOM FLUCTUATIONS IN INITIAL CONDITIONS
 velocity_diffusion = true
+max_detectable_r = 8e-04
+n_smooth_E = 51 
 
 orbit_tracing_kws = Dict(:μ_E0_par => μ_E0_par, :σ_E0_par => σ_E0_par, :σ_E0_perp => σ_E0_perp, 
                          :μ_z0 => μ_z0, :σ_z0 => σ_z0, :q0 => q0, :m0_u => m0_u, :m0_probs => m0_probs, 
@@ -60,16 +62,14 @@ upper_bounds = [1e-08, 5e-09, 5e-09, 1e-09, 0.0004] # [1e-08, 0.0004]
 p = [1.5, 1.5, 1.5, 1.5, 1.5] # [1.5, 1.5]
 sampling_func = GoldenSample() # SobolSample() #  # LatinHypercubeSample()
 acquisition_func = SRBF() #EI()
-maxiters = 50 
-num_new_samples = 300
 
-output_fname = "optimization_results"
+output_fname = "results_evaluate_cooling_sim_noise_50_ions"
 
 u = LinRange(lower_bounds[1], upper_bounds[1], 100)
 xs = [(ui,x0[2],x0[3],x0[4],x0[5]) for ui in u] 
 x = Surrogates.sample(n_samples, lower_bounds, upper_bounds, sampling_func)
 println(x[1])
-x_test = [(5.43e-09, 1.60e-10, 1.46e-10, 1.39e-10, 0.00033) for _ in range(1,n_samples)] #[x[1] for _ in range(1,n_samples)]
+x_test = [(3.96e-9, 6.42e-10, 4.63e-10, 1.55e-10, 0.000116) for _ in range(1,n_samples)] #[x[1] for _ in range(1,n_samples)]
 println(x_test)
 y = loss.(x_test)
 println("Loss function values: ", y)
