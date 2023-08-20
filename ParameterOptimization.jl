@@ -119,7 +119,8 @@ exp_data_fname_K = "RFA_results_run04354_K39_final.npy"
 exp_data_fname_Rb = "RFA_results_run04355_Rb85_final.npy"
 
 # Define mock loss function for sped-up testing
-x0 =  [3.2e-09, 1e-09, 8e-10, 2e-10, 0.00020] # [3.2e-09, 0.00020] # True parameter values
+global x0 =  [3.2e-09, 1e-09, 8e-10, 2e-10, 0.00020] # [3.2e-09, 0.00020] # True parameter values
+"""Mock loss function for quick testing"""
 function g(x)
     scale = [1e-09, 1e-09, 1e-09, 1e-09, 1e-04] # [1e-09, 1e-04]
     return sum( ((x .- x0) ./ scale).^2 )
@@ -133,6 +134,7 @@ orbit_tracing_kws = Dict(:μ_E0_par => 84., :σ_E0_par => 13., :σ_E0_perp => 0.
                          :t_end => 3.7, :dt => 1e-08, :sample_every => 200, :velocity_diffusion => true, :n_workers => 1)
 
 ##### Run test simulation
+"""Evaluate single-species loss"""
 function eval_single_species_loss(x; orbit_tracing_kws::Dict, exp_data_fname=nothing, 
                                   max_detectable_r=8e-04, ramp_correction=true, n_smooth_E=51)    
     orbit_tracing_kws[:neutral_pressures_mbar] = x[1:4]

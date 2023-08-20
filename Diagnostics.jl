@@ -105,8 +105,8 @@ end
 end 
 
 ##### Load and plot HDF5 data
+"""Plot diagnostics for ion orbit data stored in HDF5 file"""
 function get_run_info(fname; rel_path="/Tests/OutputFiles/")
-    """Plot diagnostics for ion orbit data stored in HDF5 file"""
     path = string(@__DIR__) * rel_path * fname 
     fid = h5open(path, "r")
     info = fid["RunInfo"]
@@ -146,16 +146,16 @@ function get_run_info(fname; rel_path="/Tests/OutputFiles/")
     return run_info
 end
 
+"""Print formatted representation of RunInfo"""
 function print_RunInfo(run_info)
-    """Print formatted representation of RunInfo"""
     for name in fieldnames(typeof(run_info))
         val = getfield(run_info, name)
         @printf("%25s:  %s \n", name, val)
     end
 end
 
+"""Extract ion orbit data from HDF5 file"""
 function get_ion_orbits(fname; rel_path="/Tests/OutputFiles/")
-    """Extract ion orbit data from HDF5 file"""
     run_info = get_run_info(fname; rel_path=rel_path)
 
     path = string(@__DIR__) * rel_path * fname 
@@ -169,15 +169,15 @@ function get_ion_orbits(fname; rel_path="/Tests/OutputFiles/")
     return sample_times, position_hists, velocity_hists
 end
 
+"""Load experimental ion energy data from .npy file"""
 function get_exp_data(exp_data_fname, rel_path="/ExpDatasets/")
-    """Load experimental ion energy data from .npy file"""
     np = pyimport("numpy")
     exp_data = np.load(string(@__DIR__) * rel_path * exp_data_fname, allow_pickle=true)[1]
     return exp_data
 end 
 
+"""Get filename for default experimental data from ion mass"""
 function get_default_exp_data_fname(m_u; atol=0.49, verbose=true)
-    """Get filename for default experimental data from ion mass"""
     if isapprox(m_u, 23, atol=atol)
         exp_data_fname = "RFA_results_run04343_Na23_final.npy"
     elseif isapprox(m_u, 39.1, atol=atol)
@@ -198,8 +198,9 @@ function nanmask(A, m)
     return B 
  end
 
+
+ """Correct ion energies for adiabatic cooling correction"""
  function apply_ramp_correction(energies, V_nest_eff; species="23Na")
-    """Correct ion energies for adiabatic cooling correction"""
     path = string(@__DIR__) * "/VoltageRampCorrection/"
     corr_energies = []
     initial_energies = []
@@ -254,6 +255,7 @@ function nanmask(A, m)
     return exitp(energies, V_nest_eff)    
 end
 
+"""Print ion-neutral collision statistics"""
 function print_collision_stats(fname; rel_path="/Tests/OutputFiles/")
     run_info = get_run_info(fname; rel_path=rel_path)
 
@@ -271,9 +273,9 @@ function print_collision_stats(fname; rel_path="/Tests/OutputFiles/")
     end
 end
 
+"""Plot diagnostics for ion orbit data stored in HDF5 file"""
 function plot_run_results(fname; rel_path="/Tests/OutputFiles/", max_detectable_r=8e-04, 
                           ramp_correction=true, exp_data_fname="default", n_smooth_E=1)
-    """Plot diagnostics for ion orbit data stored in HDF5 file"""
     run_info = get_run_info(fname; rel_path=rel_path)
 
     if mod(n_smooth_E,2) == 1
