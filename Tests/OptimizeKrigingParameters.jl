@@ -6,7 +6,7 @@ using Statistics
  
 fname = "/OutputFiles/2023-08-14_optimization_results.h5"
 path = string(@__DIR__) * fname 
-noise_variance = 1.23^2 #TODO: LOAD FROM optimization_results.h5 file
+noise_variance = 1.66^2 #TODO: LOAD FROM optimization_results.h5 file
 
 # Load sample data
 fid = h5open(path, "r+")

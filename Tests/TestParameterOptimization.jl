@@ -67,7 +67,7 @@ sampling_func = GoldenSample() # SobolSample() #  # LatinHypercubeSample()
 acquisition_func = SRBF() #EI()
 maxiters = 50 
 num_new_samples = 300
-noise_variance = 1.23^2
+noise_variance = 1.66^2
 
 output_fname = "optimization_results" 
 
