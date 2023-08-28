@@ -7,7 +7,6 @@ using Interpolations
 using Statistics
 using Random
 using StaticArrays
-import Distributions: Normal
 import PhysicalConstants.CODATA2018: c_0, ε_0, m_e, e, m_u, k_B, h, μ_B
 import SpecialFunctions: erf
 
