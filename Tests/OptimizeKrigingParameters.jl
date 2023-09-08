@@ -2,8 +2,8 @@ using Surrogates
 using HDF5
 using LinearAlgebra
 using Statistics
+include("../ParameterOptimization.jl")
 
- 
 fname = "/OutputFiles/2023-08-14_optimization_results.h5"
 path = string(@__DIR__) * fname 
 noise_variance = 1.66^2 #TODO: LOAD FROM optimization_results.h5 file
@@ -38,15 +38,6 @@ println(Surrogates.kriging_log_likelihood(x, y, p, theta, noise_variance))
 #println(ys)
 #println(1e-6 * norm(maximum(surrogate.y) - minimum(surrogate.y)))
 
-
-
-function log_likelihood(hyper_pars; x=x, y=y, noise_variance=noise_variance)
-    p = hyper_pars[1:5]
-    theta = hyper_pars[5:10]
-    #noise_vairance = hyper_pars[11]
-    return Surrogates.kriging_log_likelihood(x, y, p, theta, noise_variance)
-end
-
 p = [0.5 for _ in range(1,N_dims)]
 theta = [0.5 / max(1e-06 * norm(upper_bounds .- lower_bounds), std(x_i[i] for x_i in x))^p[i] for i in 1:N_dims] # default from Kriging.jl
 println(theta)
@@ -55,7 +46,7 @@ println(theta)
 
 # Optimize kriging hyperparameters
 using BlackBoxOptim
-p_bounds = [(0.5,1.99) for _ in range(1,N_dims)]
+p_bounds = [(0.1,1.99) for _ in range(1,N_dims)]
 theta_bounds = [(10.0, 100000.0) for i in range(1,N_dims)]
 ranges = append!(p_bounds, theta_bounds)
 #push!(ranges, (0.1,10.0))

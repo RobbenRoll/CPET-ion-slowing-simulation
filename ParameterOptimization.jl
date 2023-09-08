@@ -2,10 +2,21 @@
 using LinearAlgebra
 using Dates
 using Distributed
+using Surrogates
 import PhysicalConstants.CODATA2018: c_0, ε_0, m_e, e, m_u, k_B, h, μ_B
 include("IonNeutralCollisions.jl")
 include("CoolingSimulation.jl")
 include("Diagnostics.jl")
+
+# Compile atomic masses from https://www-nds.iaea.org/relnsd/vcharthtml/VChartHTML.html (AME2020)
+# Masses given to micro-u precision
+alkali_mass_data = Dict("Na" => ([22.989769], [1.]), 
+                        "K"  => ([38.963706, 40.961825], [0.933, 0.067]),
+                        "Rb" => ([84.911790, 86.909180], [0.722, 0.278]) ) 
+                        
+exp_data_fname_Na = "RFA_results_run04343_Na23_final.npy"
+exp_data_fname_K = "RFA_results_run04354_K39_final.npy"
+exp_data_fname_Rb = "RFA_results_run04355_Rb85_final.npy"
 
 # Define convenience functions for grabbing data from position and velocity histories
 get_detectable_N_ions(A) = [countnotnans(A[:,it,:]) for it in range(1, size(A)[2])]
@@ -108,32 +119,22 @@ function single_species_loss(sample_times, position_hists, velocity_hists,
     return total_loss #E_par_loss, std_E_par_loss, N_ions_loss
 end
 
-# Compile atomic masses from https://www-nds.iaea.org/relnsd/vcharthtml/VChartHTML.html (AME2020)
-# Masses given to micro-u precision
-alkali_mass_data = Dict("Na" => ([22.989769], [1.]), 
-                        "K"  => ([38.963706, 40.961825], [0.933, 0.067]),
-                        "Rb" => ([84.911790, 86.909180], [0.722, 0.278]) ) 
-                        
-exp_data_fname_Na = "RFA_results_run04343_Na23_final.npy"
-exp_data_fname_K = "RFA_results_run04354_K39_final.npy"
-exp_data_fname_Rb = "RFA_results_run04355_Rb85_final.npy"
-
 # Define mock loss function for sped-up testing
 global x0 =  [3.2e-09, 1e-09, 8e-10, 2e-10, 0.00020] # [3.2e-09, 0.00020] # True parameter values
 """Mock loss function for quick testing"""
-function g(x)
+function mock_loss(x; noise_variance=0.0)
     scale = [1e-09, 1e-09, 1e-09, 1e-09, 1e-04] # [1e-09, 1e-04]
-    return sum( ((x .- x0) ./ scale).^2 )
+    return sum( ((x .- x0) ./ scale).^2 ) + rand(Normal(0.0, sqrt(noise_variance)))
 end
 
-orbit_tracing_kws = Dict(:μ_E0_par => 84., :σ_E0_par => 13., :σ_E0_perp => 0.5, 
-                         :μ_z0 => -0.125, :σ_z0 => 0.003, :q0 => e.val, :m0_u => [23.], :m0_probs => [1.], 
-                         :N_ions => 50, :B => [0.,0.,7.], :T_b => 300, :q_b => -e.val, :m_b => m_e.val, :r_b => 0.0,
-                         :neutral_masses => [2*m_u.val], :neutral_pressures_mbar => [3e-09], 
-                         :alphas => [alpha_H2], :CX_fractions => [0.], :T_n => 300, :seed => 85383, 
-                         :t_end => 3.7, :dt => 1e-08, :sample_every => 200, :velocity_diffusion => true, :n_workers => 1)
+"""Log-likelihood for Kriging hyperparameter optimization"""
+function log_likelihood(hyper_pars; x=x, y=y, noise_variance=0.0)
+    p = hyper_pars[1:5]
+    theta = hyper_pars[6:10]
+    return Surrogates.kriging_log_likelihood(x, y, p, theta, noise_variance)
+end
 
-##### Run test simulation
+
 """Evaluate single-species loss"""
 function eval_single_species_loss(x; orbit_tracing_kws::Dict, exp_data_fname=nothing, 
                                   max_detectable_r=8e-04, ramp_correction=true, n_smooth_E=51)    

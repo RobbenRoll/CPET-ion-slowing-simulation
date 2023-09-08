@@ -4,6 +4,7 @@ include("../ParameterOptimization.jl")
 using Surrogates
 using Plots
 using HDF5
+using BlackBoxOptim
 
 # Define global parameters
 const B = [0.,0.,7.]
@@ -52,14 +53,14 @@ orbit_tracing_kws = Dict(:μ_E0_par => μ_E0_par, :σ_E0_par => σ_E0_par, :σ_E
 
 
 # Define loss function 
-loss(x) = eval_combined_plasma_off_loss(x; orbit_tracing_kws=orbit_tracing_kws, 
-                                        max_detectable_r=max_detectable_r, 
-                                        n_smooth_E=n_smooth_E, seed=seed, 
-                                        scale_time_step=scale_time_step)
-#loss(x) = g(x) # for sped-up testing 
+#loss(x) = eval_combined_plasma_off_loss(x; orbit_tracing_kws=orbit_tracing_kws, 
+#                                        max_detectable_r=max_detectable_r, 
+#                                        n_smooth_E=n_smooth_E, seed=seed, 
+#                                        scale_time_step=scale_time_step)
+loss(x) = mock_loss(x; noise_variance=1.66^2) # for sped-up testing 
 
 # Define surrogate optimization parameters
-n_samples = 50
+n_samples = 150 #50
 lower_bounds = [5e-10, 1e-10, 1e-10, 5e-11, 0.0001] # [5e-10, 0.0001] 
 upper_bounds =  [1e-08, 5e-09, 5e-09, 1e-09, 0.0004] # [1e-08, 0.0004]
 p = [1.5, 1.5, 1.5, 1.5, 1.5] # [1.5, 1.5]
@@ -75,21 +76,33 @@ output_fname = "optimization_results"
 u = LinRange(lower_bounds[1], upper_bounds[1], 1000)
 xs = [(ui,x0[2],x0[3],x0[4],x0[5]) for ui in u] 
 x = Surrogates.sample(n_samples, lower_bounds, upper_bounds, sampling_func)
-println(x)
 y = loss.(x)
-println(y)
 
-# Build surrogate
+# Build Kriging surrogate
+println(0.5 / std(x_i[i] for x_i in x))^p[i] for i in 1:length(x[1])
+println(0.5 / (1e-6 * norm(upper_bounds .- lower_bounds)) )
 theta = [0.5 / max(1e-6 * norm(upper_bounds .- lower_bounds), std(x_i[i] for x_i in x))^p[i] for i in 1:length(x[1])] # default from Kriging.jl
 surrogate = Kriging(x, y, lower_bounds, upper_bounds, p=p, theta=theta, noise_variance=noise_variance)
+ys = surrogate.(xs)
 println("Samples:")
 println(surrogate.x)
 println("Loss values:")
 println(surrogate.y)
-println(xs)
-ys = surrogate.(xs)
-println(ys)
-println(1e-6 * norm(maximum(surrogate.y) - minimum(surrogate.y)))
+
+# Optimize Kriging hyperparameters (keep noise-variance constant)
+N_dims = length(x[1])
+p_bounds = [(0.1,1.99) for _ in range(1,N_dims)]
+theta_bounds = [(1e-06*minimum(theta), 1e08*maximum(theta)) for i in range(1,N_dims)]
+ranges = append!(p_bounds, theta_bounds)
+initial_guess = append!(p, theta)
+println("Initial hyperparameters [p's, theta's]: ", initial_guess)
+println("Initial log-likelihood: ", log_likelihood(initial_guess))
+res = bboptimize(log_likelihood, initial_guess; SearchRange = ranges, NumDimensions = 2*N_dims, 
+                 MaxFuncEvals = 1000, TraceInterval = 0.1)
+best_hyper_pars = best_candidate(res)
+println("Optimized hyperparameters [p's, theta's]: ", best_hyper_pars)
+p = best_hyper_pars[1:N_dims]
+theta = best_hyper_pars[N_dims+1:2*N_dims]
 
 # Write initial sample data to attributes 
 fid = h5open(output_fname * ".h5", "w")
@@ -110,7 +123,6 @@ init_samples["inputs"] = surrogate.x
 init_samples["combined_loss_vals"] = surrogate.y
 close(fid)
 println("Initial sample data written to " * output_fname * ".h5")
-
 
 # Plot initial samples from surrogate
 function get_contour_levels(zz, n_levels = 30) 
@@ -156,7 +168,7 @@ f = scatter(getindex.(surrogate.x,1), surrogate.y, label="Sampled points", ylim=
             xlabel="H2 pressure (mbar)", ylabel="Loss", #yscale=:log10, 
             margin=10Plots.mm)
 plot!(getindex.(xs,1), ys, label="Surrogate function", legend=:top, ribbon=yerrs)
-plot!(getindex.(xs,1), g.(xs), label="True function")
+plot!(getindex.(xs,1), mock_loss.(xs), label="True function")
 savefig(f, "Surrogate_samples_H2.png") 
 #display(f)
 
@@ -227,7 +239,7 @@ f = scatter(getindex.(surrogate.x,1), surrogate.y, label="Sampled points", ylim=
             xlabel="H2 pressure (mbar)", ylabel="Loss", #yscale=:log10, 
             margin=10Plots.mm)
 plot!(getindex.(xs,1), surrogate.(xs), label="Surrogate function", legend=:top, ribbon=yerrs)
-plot!(getindex.(xs,1), g.(xs), label="True function")
+plot!(getindex.(xs,1), mock_loss.(xs), label="True function")
 savefig(f, "Surrogate_final_samples_H2.png") 
 #display(f)
 
