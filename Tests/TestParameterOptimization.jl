@@ -35,7 +35,7 @@ T_n = 300.
 
 # Define run parameters
 n_workers = 15
-t_end = 3.700e-03
+t_end = 3700e-03
 dt = 1e-08 # applies to Na only if scale_time_step == true
 scale_time_step = true
 sample_every = 200
@@ -61,7 +61,7 @@ sampling_func = SobolSample() #LatinHypercubeSample() # GoldenSample()
 acquisition_func = SRBF() # EI()
 maxiters = 30 
 num_new_samples = 300
-noise_variance =  1.66^2 #0.1^2 
+noise_variance = 1.66^2 #0.1^2 
 
 output_fname = "optimization_results" 
 
