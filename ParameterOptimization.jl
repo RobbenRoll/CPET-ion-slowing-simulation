@@ -123,7 +123,7 @@ end
 global x0 =  [3.2e-09, 1e-09, 8e-10, 2e-10, 0.00020] # [3.2e-09, 0.00020] # True parameter values
 """Mock loss function for quick testing"""
 function mock_loss(x; noise_variance=0.0)
-    scale = [1e-09, 1e-09, 1e-09, 1e-09, 1e-04] # [1e-09, 1e-04]
+    scale = [1e-09, 1e-09, 8e-10, 2e-10, 1e-04] # [1e-09, 1e-04]
     return sum( ((x .- x0) ./ scale).^2 ) + rand(Normal(0.0, sqrt(noise_variance)))
 end
 

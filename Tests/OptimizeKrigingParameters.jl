@@ -47,7 +47,7 @@ println(theta)
 # Optimize kriging hyperparameters
 using BlackBoxOptim
 p_bounds = [(0.1,1.99) for _ in range(1,N_dims)]
-theta_bounds = [(10.0, 100000.0) for i in range(1,N_dims)]
+theta_bounds = [(1e17, 1e19) for i in range(1,N_dims)]
 ranges = append!(p_bounds, theta_bounds)
 #push!(ranges, (0.1,10.0))
 initial_guess = append!(p, theta)
